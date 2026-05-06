@@ -1,0 +1,17 @@
+{
+  "name": "claw-zettel",
+  "private": true,
+  "workspaces": [
+    "apps/frontend",
+    "apps/backend"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '*' dev",
+    "dev:frontend": "bun run --filter frontend dev",
+    "dev:backend": "bun run --filter backend dev",
+    "local": "bash scripts/dev-local.sh",
+    "build": "bun run --filter '*' build",
+    "lint": "bun run --filter '*' lint",
+    "typecheck": "bun run --filter '*' typecheck"
+  }
+}

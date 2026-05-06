@@ -1,0 +1,18 @@
+services:
+  backend:
+    build: .
+    ports:
+      - "${PORT:-3001}:3001"
+    environment:
+      PORT: ${PORT:-3001}
+      PASSWORD: ${PASSWORD:-changeme}
+      JWT_SECRET: ${JWT_SECRET:-change-this-secret}
+      NOTES_REPO_PATH: /notes
+      GIT_REMOTE_URL: ${GIT_REMOTE_URL:-}
+      GIT_USER_NAME: ${GIT_USER_NAME:-nanoclaw}
+      GIT_USER_EMAIL: ${GIT_USER_EMAIL:-nanoclaw@claw-zettel}
+      NANOCLAW_BASE_URL: ${NANOCLAW_BASE_URL:-http://nanoclaw:4000}
+    volumes:
+      - ${NOTES_REPO_PATH:-./notes}:/notes
+      - ./data:/app/data
+    restart: unless-stopped
