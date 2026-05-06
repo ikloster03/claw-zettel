@@ -73,7 +73,7 @@ echo ""
 # ─────────────────────────────────────────────
 #  Step 1: Notes repository
 # ─────────────────────────────────────────────
-step "[1/6] Notes repository"
+step "[1/7] Notes repository"
 
 GIT_REMOTE="" GIT_USER="" GIT_TOKEN=""
 
@@ -91,7 +91,7 @@ ask NOTES_PATH "Local notes path" "/opt/zettelkasten"
 # ─────────────────────────────────────────────
 #  Step 2: Server password
 # ─────────────────────────────────────────────
-step "[2/6] Server password"
+step "[2/7] Server password"
 
 ask_secret PASSWORD "Password (press Enter to auto-generate)"
 
@@ -105,13 +105,13 @@ fi
 # ─────────────────────────────────────────────
 #  Step 3: Ports
 # ─────────────────────────────────────────────
-step "[3/6] Ports"
+step "[3/7] Ports"
 ask BACKEND_PORT "Backend port" "3001"
 
 # ─────────────────────────────────────────────
 #  Step 4: Frontend (optional)
 # ─────────────────────────────────────────────
-step "[4/6] Frontend (clawzettel UI)"
+step "[4/7] Frontend (clawzettel UI)"
 
 INSTALL_FRONTEND=false
 FRONTEND_PORT="3000"
@@ -124,7 +124,7 @@ fi
 # ─────────────────────────────────────────────
 #  Step 5: Domain + SSL
 # ─────────────────────────────────────────────
-step "[5/6] Domain & SSL"
+step "[5/7] Domain & SSL"
 
 DOMAIN="" USE_SSL=false SSL_TYPE="letsencrypt"
 LE_EMAIL="" CERT_FILE="" KEY_FILE=""
@@ -158,7 +158,7 @@ fi
 # ─────────────────────────────────────────────
 #  Step 6: nanoclaw AI agent (optional)
 # ─────────────────────────────────────────────
-step "[6/6] nanoclaw AI agent"
+step "[6/7] nanoclaw AI agent"
 
 INSTALL_NANOCLAW=false
 NANOCLAW_API_KEY=""
@@ -174,6 +174,61 @@ if ask_yn "Install nanoclaw AI agent?" "n"; then
   ask_secret NANOCLAW_API_KEY "Anthropic API key (console.anthropic.com)"
   [[ -z "$NANOCLAW_API_KEY" ]] && error "Anthropic API key is required for nanoclaw."
   ask NANOCLAW_TRIGGER "Agent trigger word" "@Andy"
+fi
+
+# ─────────────────────────────────────────────
+#  Step 7: opencode AI coding assistant (optional)
+# ─────────────────────────────────────────────
+step "[7/7] opencode AI coding assistant"
+
+INSTALL_OPENCODE=false
+OPENCODE_PROVIDER=""
+OPENCODE_API_KEY=""
+OPENCODE_MODEL=""
+
+echo "    opencode is a terminal-based AI coding assistant."
+echo ""
+
+if ask_yn "Install opencode?" "n"; then
+  INSTALL_OPENCODE=true
+
+  echo ""
+  echo "    Provider options:"
+  echo "    1) Anthropic (Claude) — console.anthropic.com"
+  echo "    2) z.ai               — zeroentropy.ai / z.ai"
+  echo "    3) OpenAI             — platform.openai.com"
+  echo "    4) Other (custom OpenAI-compatible endpoint)"
+  echo ""
+  ask OPENCODE_PROVIDER_CHOICE "Choice" "1"
+
+  case "$OPENCODE_PROVIDER_CHOICE" in
+    1)
+      OPENCODE_PROVIDER="anthropic"
+      ask_secret OPENCODE_API_KEY "Anthropic API key"
+      ask OPENCODE_MODEL "Model" "claude-sonnet-4-5"
+      ;;
+    2)
+      OPENCODE_PROVIDER="z.ai"
+      ask_secret OPENCODE_API_KEY "z.ai API key"
+      ask OPENCODE_MODEL "Model" "z1"
+      ;;
+    3)
+      OPENCODE_PROVIDER="openai"
+      ask_secret OPENCODE_API_KEY "OpenAI API key"
+      ask OPENCODE_MODEL "Model" "gpt-4o"
+      ;;
+    4)
+      OPENCODE_PROVIDER="custom"
+      ask OPENCODE_CUSTOM_BASE_URL "Base URL (e.g. https://api.example.com/v1)"
+      [[ -z "$OPENCODE_CUSTOM_BASE_URL" ]] && error "Base URL cannot be empty."
+      ask_secret OPENCODE_API_KEY "API key"
+      ask OPENCODE_MODEL "Model name"
+      [[ -z "$OPENCODE_MODEL" ]] && error "Model name cannot be empty."
+      ;;
+    *)
+      warn "Unknown choice, skipping opencode provider configuration."
+      ;;
+  esac
 fi
 
 # ─────────────────────────────────────────────
@@ -483,6 +538,73 @@ GEOF
 fi
 
 # ─────────────────────────────────────────────
+#  opencode
+# ─────────────────────────────────────────────
+if [[ "$INSTALL_OPENCODE" == "true" ]]; then
+  info "Installing opencode…"
+  curl -fsSL https://opencode.ai/install | bash || error "opencode installation failed."
+
+  OPENCODE_CONFIG_DIR="${HOME}/.config/opencode"
+  mkdir -p "$OPENCODE_CONFIG_DIR"
+
+  case "$OPENCODE_PROVIDER" in
+    anthropic)
+      cat > "$OPENCODE_CONFIG_DIR/config.json" <<OCEOF
+{
+  "model": "${OPENCODE_MODEL}",
+  "provider": {
+    "anthropic": {
+      "apiKey": "${OPENCODE_API_KEY}"
+    }
+  }
+}
+OCEOF
+      ;;
+    z.ai)
+      cat > "$OPENCODE_CONFIG_DIR/config.json" <<OCEOF
+{
+  "model": "${OPENCODE_MODEL}",
+  "provider": {
+    "openai": {
+      "name": "z.ai",
+      "baseUrl": "https://api.z.ai/v1",
+      "apiKey": "${OPENCODE_API_KEY}"
+    }
+  }
+}
+OCEOF
+      ;;
+    openai)
+      cat > "$OPENCODE_CONFIG_DIR/config.json" <<OCEOF
+{
+  "model": "${OPENCODE_MODEL}",
+  "provider": {
+    "openai": {
+      "apiKey": "${OPENCODE_API_KEY}"
+    }
+  }
+}
+OCEOF
+      ;;
+    custom)
+      cat > "$OPENCODE_CONFIG_DIR/config.json" <<OCEOF
+{
+  "model": "${OPENCODE_MODEL}",
+  "provider": {
+    "openai": {
+      "baseUrl": "${OPENCODE_CUSTOM_BASE_URL}",
+      "apiKey": "${OPENCODE_API_KEY}"
+    }
+  }
+}
+OCEOF
+      ;;
+  esac
+
+  info "opencode configured at $OPENCODE_CONFIG_DIR/config.json"
+fi
+
+# ─────────────────────────────────────────────
 #  Summary
 # ─────────────────────────────────────────────
 echo ""
@@ -514,5 +636,8 @@ warn ".env:      $BACKEND_DIR/apps/backend/.env"
 if [[ "$INSTALL_NANOCLAW" == "true" ]]; then
   warn "nanoclaw:  $NANOCLAW_DIR"
   warn "allowlist: ${HOME}/.config/nanoclaw/mount-allowlist.json"
+fi
+if [[ "$INSTALL_OPENCODE" == "true" ]]; then
+  warn "opencode:  ${HOME}/.config/opencode/config.json"
 fi
 echo ""
