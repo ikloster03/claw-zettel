@@ -35,7 +35,7 @@ app.onError((err, c) => {
 await seedLocalNotes();
 
 const port = Number(process.env.PORT ?? 3001);
-const mode = process.env.NANOCLAW_MODE === "mock" ? " [local/mock]" : "";
+const mode = process.env.CLAWZETTEL_MODE === "mock" ? " [local/mock]" : "";
 console.log(`Backend running on http://0.0.0.0:${port}${mode}`);
 
 export default {

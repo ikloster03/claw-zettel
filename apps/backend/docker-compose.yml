@@ -9,9 +9,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-this-secret}
       NOTES_REPO_PATH: /notes
       GIT_REMOTE_URL: ${GIT_REMOTE_URL:-}
-      GIT_USER_NAME: ${GIT_USER_NAME:-nanoclaw}
-      GIT_USER_EMAIL: ${GIT_USER_EMAIL:-nanoclaw@claw-zettel}
-      NANOCLAW_BASE_URL: ${NANOCLAW_BASE_URL:-http://nanoclaw:4000}
+      GIT_USER_NAME: ${GIT_USER_NAME:-clawzettel}
+      GIT_USER_EMAIL: ${GIT_USER_EMAIL:-clawzettel@claw-zettel}
+      CLAWZETTEL_BASE_URL: ${CLAWZETTEL_BASE_URL:-http://clawzettel:4000}
     volumes:
       - ${NOTES_REPO_PATH:-./notes}:/notes
       - ./data:/app/data

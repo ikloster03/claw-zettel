@@ -1,6 +1,6 @@
 # claw-zettel
 
-AI-powered personal Zettelkasten web app. Connect your own VPS running [nanoclaw](https://github.com/ikloster03/nanoclaw) and get a unified interface for chatting with AI and managing your notes.
+AI-powered personal Zettelkasten web app. Connect your own VPS running [clawzettel](https://github.com/ikloster03/clawzettel) and get a unified interface for chatting with AI and managing your notes.
 
 ## Architecture
 
@@ -8,7 +8,7 @@ AI-powered personal Zettelkasten web app. Connect your own VPS running [nanoclaw
 Frontend (static SPA)  ←──── HTTP/HTTPS ────→  Backend (your VPS)
   Vue3 + Pinia                                    Hono + Bun
   reka-ui + Tailwind                              SQLite (chat history)
-  Docker / Vercel                                 nanoclaw AI agent
+  Docker / Vercel                                 clawzettel AI agent
                                                   Git (notes repo)
 ```
 
@@ -21,7 +21,7 @@ curl -fsSL https://raw.githubusercontent.com/ikloster03/claw-zettel/main/scripts
 ```
 
 The script will:
-- Ask for a password, port, path to your Zettelkasten Git repo, and nanoclaw URL
+- Ask for a password, port, path to your Zettelkasten Git repo, and clawzettel URL
 - Clone the backend, create `.env`, and start it via Docker Compose
 
 ### 2. Run frontend locally
@@ -63,7 +63,7 @@ Copy `.env.example` to `.env` in `apps/backend/` before running the backend.
 |----------|------|
 | Frontend | Vue 3, Pinia, reka-ui, Tailwind CSS v4, Vite, TypeScript |
 | Backend  | Hono, Bun, SQLite (`bun:sqlite`), jose (JWT) |
-| AI       | nanoclaw (streaming SSE) |
+| AI       | clawzettel (streaming SSE) |
 | VCS      | Git (auto-commit + push after note operations) |
 | Infra    | Docker, Docker Compose, nginx |
 

@@ -31,8 +31,8 @@ NOTES_PATH="${NOTES_PATH:-/opt/zettelkasten}"
 
 read -rp "  Git remote URL for auto-push (leave blank to skip push): " GIT_REMOTE
 
-read -rp "  nanoclaw URL [http://localhost:4000]: " NANOCLAW_URL
-NANOCLAW_URL="${NANOCLAW_URL:-http://localhost:4000}"
+read -rp "  clawzettel URL [http://localhost:4000]: " CLAWZETTEL_URL
+CLAWZETTEL_URL="${CLAWZETTEL_URL:-http://localhost:4000}"
 
 JWT_SECRET="$(openssl rand -hex 32 2>/dev/null || cat /dev/urandom | tr -dc 'a-f0-9' | head -c 64)"
 
@@ -62,9 +62,9 @@ PASSWORD=${PASSWORD}
 JWT_SECRET=${JWT_SECRET}
 NOTES_REPO_PATH=${NOTES_PATH}
 GIT_REMOTE_URL=${GIT_REMOTE}
-GIT_USER_NAME=nanoclaw
-GIT_USER_EMAIL=nanoclaw@claw-zettel
-NANOCLAW_BASE_URL=${NANOCLAW_URL}
+GIT_USER_NAME=clawzettel
+GIT_USER_EMAIL=clawzettel@claw-zettel
+CLAWZETTEL_BASE_URL=${CLAWZETTEL_URL}
 DB_PATH=/app/data/data.sqlite
 EOF
 

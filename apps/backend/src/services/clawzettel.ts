@@ -3,8 +3,8 @@ export interface Message {
   content: string;
 }
 
-const NANOCLAW_URL = () =>
-  process.env.NANOCLAW_BASE_URL ?? "http://localhost:4000";
+const CLAWZETTEL_URL = () =>
+  process.env.CLAWZETTEL_BASE_URL ?? "http://localhost:4000";
 
 async function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -18,7 +18,7 @@ async function* mockChat(messages: Message[]): AsyncGenerator<string> {
 
   if (lower.includes("привет") || lower.includes("hello") || lower.includes("hi")) {
     reply =
-      "Привет! Я mock-версия nanoclaw для локального тестирования. " +
+      "Привет! Я mock-версия clawzettel для локального тестирования. " +
       "Я могу помочь вам с вашим Zettelkasten — создавать, искать и редактировать заметки. " +
       "Попробуйте спросить: «покажи мои заметки» или «создай заметку о Vue 3».";
   } else if (lower.includes("заметк") || lower.includes("note")) {
@@ -30,7 +30,7 @@ async function* mockChat(messages: Message[]): AsyncGenerator<string> {
   } else if (lower.includes("найди") || lower.includes("search") || lower.includes("поиск")) {
     reply =
       "Поиск по Zettelkasten работает через вкладку Notes (строка поиска слева). " +
-      "В реальном режиме я использую nanoclaw для семантического поиска по вашей базе знаний. " +
+      "В реальном режиме clawzettel выполняет семантический поиск по вашей базе знаний. " +
       "В local-режиме — простой полнотекстовый поиск через API `/notes/search?q=`.";
   } else if (lower.includes("создай") || lower.includes("create") || lower.includes("напиши")) {
     reply =
@@ -45,14 +45,14 @@ async function* mockChat(messages: Message[]): AsyncGenerator<string> {
       "- Редактировать и рефакторить существующие\n" +
       "- Искать в интернете (в реальном режиме)\n" +
       "- Связывать идеи между заметками\n\n" +
-      "> **Сейчас работает local-режим** (mock nanoclaw). " +
-      "Подключите реальный nanoclaw-сервер для полного функционала.";
+      "> **Сейчас работает local-режим** (mock clawzettel). " +
+      "Подключите реальный clawzettel-сервер для полного функционала.";
   } else {
     reply =
       `Вы написали: _«${last}»_\n\n` +
-      "Я получил ваше сообщение. В **local-режиме** я не подключён к реальному nanoclaw, " +
+      "Я получил ваше сообщение. В **local-режиме** я не подключён к реальному clawzettel, " +
       "поэтому не могу обработать произвольные запросы к вашей базе знаний.\n\n" +
-      "Для полноценной работы запустите nanoclaw-сервер и укажите `NANOCLAW_BASE_URL` в `.env`.\n\n" +
+      "Для полноценной работы запустите clawzettel-сервер и укажите `CLAWZETTEL_BASE_URL` в `.env`.\n\n" +
       "А пока — попробуйте вкладку **Notes** для работы с заметками без AI.";
   }
 
@@ -63,15 +63,15 @@ async function* mockChat(messages: Message[]): AsyncGenerator<string> {
   }
 }
 
-export async function* nanoclawChat(
+export async function* clawzettelChat(
   messages: Message[]
 ): AsyncGenerator<string> {
-  if (process.env.NANOCLAW_MODE === "mock") {
+  if (process.env.CLAWZETTEL_MODE === "mock") {
     yield* mockChat(messages);
     return;
   }
 
-  const res = await fetch(`${NANOCLAW_URL()}/chat`, {
+  const res = await fetch(`${CLAWZETTEL_URL()}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages }),
@@ -79,7 +79,7 @@ export async function* nanoclawChat(
 
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => res.statusText);
-    throw new Error(`nanoclaw error: ${text}`);
+    throw new Error(`clawzettel error: ${text}`);
   }
 
   const reader = res.body.getReader();

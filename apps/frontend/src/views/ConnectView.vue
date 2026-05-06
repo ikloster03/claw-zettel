@@ -3,7 +3,7 @@
     <div class="w-full max-w-md">
       <div class="text-center mb-8">
         <h1 class="text-3xl font-bold text-[var(--color-text)]">claw-zettel</h1>
-        <p class="mt-2 text-[var(--color-muted)] text-sm">Connect to your nanoclaw server</p>
+        <p class="mt-2 text-[var(--color-muted)] text-sm">Connect to your clawzettel server</p>
       </div>
 
       <div class="bg-[var(--color-surface)] rounded-2xl shadow-lg border border-[var(--color-border)] p-6">

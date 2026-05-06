@@ -41,7 +41,7 @@ AI-ассистент для работы с Zettelkasten.
 
 - Frontend: Vue 3 + Pinia + Tailwind
 - Backend: Hono + Bun + SQLite
-- AI: nanoclaw
+- AI: clawzettel
 
 ## Возможности
 
@@ -84,7 +84,7 @@ AI-ассистент для работы с Zettelkasten.
 };
 
 export async function seedLocalNotes(): Promise<void> {
-  if (process.env.NANOCLAW_MODE !== "mock") return;
+  if (process.env.CLAWZETTEL_MODE !== "mock") return;
 
   const root = process.env.NOTES_REPO_PATH ?? "./local-notes";
   if (existsSync(root)) return; // already seeded
@@ -108,8 +108,8 @@ export async function seedLocalNotes(): Promise<void> {
   const commit = Bun.spawn(
     [
       "git",
-      "-c", "user.name=nanoclaw-local",
-      "-c", "user.email=nanoclaw@localhost",
+      "-c", "user.name=clawzettel-local",
+      "-c", "user.email=clawzettel@localhost",
       "commit",
       "--allow-empty",
       "-m", "initial: seed example notes",

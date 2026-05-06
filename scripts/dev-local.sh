@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts frontend + backend in local/mock mode for testing without a real nanoclaw server.
+# Starts frontend + backend in local/mock mode for testing without a real clawzettel server.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

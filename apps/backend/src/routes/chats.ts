@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { db } from "../db";
 import { authMiddleware } from "../middleware/auth";
-import { nanoclawChat } from "../services/nanoclaw";
+import { clawzettelChat } from "../services/clawzettel";
 
 export const chatsRouter = new Hono();
 chatsRouter.use("*", authMiddleware);
@@ -66,7 +66,7 @@ chatsRouter.post("/:id/messages", async (c) => {
   return streamSSE(c, async (stream) => {
     let fullContent = "";
     try {
-      for await (const chunk of nanoclawChat(history)) {
+      for await (const chunk of clawzettelChat(history)) {
         fullContent += chunk;
         await stream.writeSSE({ data: JSON.stringify({ chunk }) });
       }

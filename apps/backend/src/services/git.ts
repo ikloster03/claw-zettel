@@ -6,8 +6,8 @@ function notesRoot(): string {
 
 async function git(args: string[]): Promise<string> {
   const cwd = notesRoot();
-  const name = process.env.GIT_USER_NAME ?? "nanoclaw";
-  const email = process.env.GIT_USER_EMAIL ?? "nanoclaw@claw-zettel";
+  const name = process.env.GIT_USER_NAME ?? "clawzettel";
+  const email = process.env.GIT_USER_EMAIL ?? "clawzettel@claw-zettel";
   const proc = Bun.spawn(
     ["git", "-c", `user.name=${name}`, "-c", `user.email=${email}`, ...args],
     { cwd, stdout: "pipe", stderr: "pipe" }
