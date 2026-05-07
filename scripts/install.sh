@@ -2,9 +2,9 @@
 set -euo pipefail
 
 REPO="https://github.com/ikloster03/claw-zettel"
-NANOCLAW_REPO="https://github.com/qwibitai/nanoclaw"
+ZEROCLAW_REPO="https://github.com/zeroclaw-labs/zeroclaw"
 BACKEND_DIR="/opt/claw-zettel-backend"
-NANOCLAW_DIR="/opt/nanoclaw"
+ZEROCLAW_DIR="/opt/zeroclaw"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 info()    { echo -e "${GREEN}[claw-zettel]${NC} $*"; }
@@ -156,24 +156,24 @@ if ask_yn "Do you have a domain pointing to this server?" "n"; then
 fi
 
 # ─────────────────────────────────────────────
-#  Step 6: nanoclaw AI agent (optional)
+#  Step 6: zeroclaw AI agent (optional)
 # ─────────────────────────────────────────────
-step "[6/7] nanoclaw AI agent"
+step "[6/7] zeroclaw AI agent"
 
-INSTALL_NANOCLAW=false
-NANOCLAW_API_KEY=""
-NANOCLAW_TRIGGER="@Andy"
+INSTALL_ZEROCLAW=false
+ZEROCLAW_API_KEY=""
+ZEROCLAW_TRIGGER="@Andy"
 
-echo "    nanoclaw is an AI assistant that runs Claude Code agents in isolated"
+echo "    zeroclaw is an AI assistant that runs agents in isolated"
 echo "    containers. It will be restricted to your zettelkasten notes and its"
 echo "    own config files — nothing else on the server."
 echo ""
 
-if ask_yn "Install nanoclaw AI agent?" "n"; then
-  INSTALL_NANOCLAW=true
-  ask_secret NANOCLAW_API_KEY "Anthropic API key (console.anthropic.com)"
-  [[ -z "$NANOCLAW_API_KEY" ]] && error "Anthropic API key is required for nanoclaw."
-  ask NANOCLAW_TRIGGER "Agent trigger word" "@Andy"
+if ask_yn "Install zeroclaw AI agent?" "n"; then
+  INSTALL_ZEROCLAW=true
+  ask_secret ZEROCLAW_API_KEY "z.ia API key"
+  [[ -z "$ZEROCLAW_API_KEY" ]] && error "z.ia API key is required for zeroclaw."
+  ask ZEROCLAW_TRIGGER "Agent trigger word" "@Andy"
 fi
 
 # ─────────────────────────────────────────────
@@ -195,11 +195,11 @@ if ask_yn "Install opencode?" "n"; then
   echo ""
   echo "    Provider options:"
   echo "    1) Anthropic (Claude) — console.anthropic.com"
-  echo "    2) z.ai               — zeroentropy.ai / z.ai"
+  echo "    2) z.ia               — z.ia / glm models"
   echo "    3) OpenAI             — platform.openai.com"
   echo "    4) Other (custom OpenAI-compatible endpoint)"
   echo ""
-  ask OPENCODE_PROVIDER_CHOICE "Choice" "1"
+  ask OPENCODE_PROVIDER_CHOICE "Choice" "2"
 
   case "$OPENCODE_PROVIDER_CHOICE" in
     1)
@@ -209,8 +209,8 @@ if ask_yn "Install opencode?" "n"; then
       ;;
     2)
       OPENCODE_PROVIDER="z.ai"
-      ask_secret OPENCODE_API_KEY "z.ai API key"
-      ask OPENCODE_MODEL "Model" "z1"
+      ask_secret OPENCODE_API_KEY "z.ia API key"
+      ask OPENCODE_MODEL "Model" "glm-5.1"
       ;;
     3)
       OPENCODE_PROVIDER="openai"
@@ -438,29 +438,29 @@ DCEOF
 fi
 
 # ─────────────────────────────────────────────
-#  nanoclaw
+#  zeroclaw
 # ─────────────────────────────────────────────
-if [[ "$INSTALL_NANOCLAW" == "true" ]]; then
-  info "Setting up nanoclaw…"
+if [[ "$INSTALL_ZEROCLAW" == "true" ]]; then
+  info "Setting up zeroclaw…"
 
   # Clone or update
-  if [[ -d "$NANOCLAW_DIR/.git" ]]; then
-    info "Updating existing nanoclaw at $NANOCLAW_DIR"
-    git -C "$NANOCLAW_DIR" pull --ff-only
+  if [[ -d "$ZEROCLAW_DIR/.git" ]]; then
+    info "Updating existing zeroclaw at $ZEROCLAW_DIR"
+    git -C "$ZEROCLAW_DIR" pull --ff-only
   else
-    info "Cloning nanoclaw to $NANOCLAW_DIR"
-    git clone --depth 1 "$NANOCLAW_REPO" "$NANOCLAW_DIR"
+    info "Cloning zeroclaw to $ZEROCLAW_DIR"
+    git clone --depth 1 "$ZEROCLAW_REPO" "$ZEROCLAW_DIR"
   fi
 
   # Mount allowlist — restrict agent to its own configs + notes only
-  mkdir -p "${HOME}/.config/nanoclaw"
-  cat > "${HOME}/.config/nanoclaw/mount-allowlist.json" <<MEOF
+  mkdir -p "${HOME}/.config/zeroclaw"
+  cat > "${HOME}/.config/zeroclaw/mount-allowlist.json" <<MEOF
 {
   "allowedRoots": [
     {
-      "path": "${NANOCLAW_DIR}/groups",
+      "path": "${ZEROCLAW_DIR}/groups",
       "allowReadWrite": true,
-      "description": "nanoclaw agent group configs (own directory)"
+      "description": "zeroclaw agent group configs (own directory)"
     },
     {
       "path": "${NOTES_PATH}",
@@ -479,10 +479,10 @@ if [[ "$INSTALL_NANOCLAW" == "true" ]]; then
   "nonMainReadOnly": true
 }
 MEOF
-  info "Mount allowlist written — nanoclaw restricted to its configs and notes."
+  info "Mount allowlist written — zeroclaw restricted to its configs and notes."
 
   # Pre-create the zettelkasten agent group
-  ZETTEL_GROUP_DIR="$NANOCLAW_DIR/groups/zettelkasten"
+  ZETTEL_GROUP_DIR="$ZEROCLAW_DIR/groups/zettelkasten"
   mkdir -p "$ZETTEL_GROUP_DIR"
   cat > "$ZETTEL_GROUP_DIR/CLAUDE.md" <<GEOF
 @./.claude-global.md
@@ -517,9 +517,9 @@ GEOF
 
   echo ""
   warn "─────────────────────────────────────────────"
-  warn " nanoclaw setup will start now."
+  warn " zeroclaw setup will start now."
   warn ""
-  warn " When asked to name your agent, use: ${NANOCLAW_TRIGGER}"
+  warn " When asked to name your agent, use: ${ZEROCLAW_TRIGGER}"
   warn ""
   warn " After completing the setup wizard, connect the agent"
   warn " to your notes by telling your main agent:"
@@ -528,12 +528,12 @@ GEOF
   warn "   and mount ${NOTES_PATH} at /workspace/extra/notes/ (read-write)"
   warn "─────────────────────────────────────────────"
   echo ""
-  printf "  Press Enter to continue into nanoclaw setup…" >/dev/tty
+  printf "  Press Enter to continue into zeroclaw setup…" >/dev/tty
   IFS= read -r _ </dev/tty
 
-  cd "$NANOCLAW_DIR"
-  ANTHROPIC_API_KEY="$NANOCLAW_API_KEY" bash nanoclaw.sh || \
-    warn "nanoclaw setup exited — you can re-run it with: bash $NANOCLAW_DIR/nanoclaw.sh"
+  cd "$ZEROCLAW_DIR"
+  ZAI_API_KEY="$ZEROCLAW_API_KEY" bash zeroclaw.sh || \
+    warn "zeroclaw setup exited — you can re-run it with: bash $ZEROCLAW_DIR/zeroclaw.sh"
   cd - >/dev/null
 fi
 
@@ -633,9 +633,9 @@ if [[ "$GENERATED_PASSWORD" == "true" ]]; then
 fi
 
 warn ".env:      $BACKEND_DIR/apps/backend/.env"
-if [[ "$INSTALL_NANOCLAW" == "true" ]]; then
-  warn "nanoclaw:  $NANOCLAW_DIR"
-  warn "allowlist: ${HOME}/.config/nanoclaw/mount-allowlist.json"
+if [[ "$INSTALL_ZEROCLAW" == "true" ]]; then
+  warn "zeroclaw:  $ZEROCLAW_DIR"
+  warn "allowlist: ${HOME}/.config/zeroclaw/mount-allowlist.json"
 fi
 if [[ "$INSTALL_OPENCODE" == "true" ]]; then
   warn "opencode:  ${HOME}/.config/opencode/config.json"

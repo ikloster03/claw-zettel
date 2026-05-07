@@ -4,7 +4,7 @@
 set -euo pipefail
 
 BACKEND_DIR="/opt/claw-zettel-backend"
-NANOCLAW_DIR="/opt/nanoclaw"
+ZEROCLAW_DIR="/opt/zeroclaw"
 DEFAULT_NOTES_PATH="/opt/zettelkasten"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -97,26 +97,26 @@ if ask_yn "Remove claw-zettel Docker images (frees disk space)?" "n"; then
 fi
 
 # ─────────────────────────────────────────────
-#  nanoclaw
+#  zeroclaw
 # ─────────────────────────────────────────────
-if [[ -d "$NANOCLAW_DIR" ]]; then
-  if ask_yn "Stop nanoclaw and remove it from $NANOCLAW_DIR?"; then
-    # Stop any running nanoclaw containers
+if [[ -d "$ZEROCLAW_DIR" ]]; then
+  if ask_yn "Stop zeroclaw and remove it from $ZEROCLAW_DIR?"; then
+    # Stop any running zeroclaw containers
     if command -v docker >/dev/null 2>&1; then
-      docker ps --filter "label=com.docker.compose.project=nanoclaw" -q \
+      docker ps --filter "label=com.docker.compose.project=zeroclaw" -q \
         | xargs -r docker stop 2>/dev/null || true
     fi
-    rm -rf "$NANOCLAW_DIR"
-    info "nanoclaw removed."
+    rm -rf "$ZEROCLAW_DIR"
+    info "zeroclaw removed."
     ANYTHING_DONE=true
   fi
 fi
 
-# Remove nanoclaw config/allowlist
-if [[ -d "${HOME}/.config/nanoclaw" ]]; then
-  if ask_yn "Remove nanoclaw config at ${HOME}/.config/nanoclaw?" "n"; then
-    rm -rf "${HOME}/.config/nanoclaw"
-    info "nanoclaw config removed."
+# Remove zeroclaw config/allowlist
+if [[ -d "${HOME}/.config/zeroclaw" ]]; then
+  if ask_yn "Remove zeroclaw config at ${HOME}/.config/zeroclaw?" "n"; then
+    rm -rf "${HOME}/.config/zeroclaw"
+    info "zeroclaw config removed."
     ANYTHING_DONE=true
   fi
 fi
