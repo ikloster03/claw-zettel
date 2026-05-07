@@ -2,9 +2,8 @@
 set -euo pipefail
 
 REPO="https://github.com/ikloster03/claw-zettel"
-ZEROCLAW_REPO="https://github.com/zeroclaw-labs/zeroclaw"
 BACKEND_DIR="/opt/claw-zettel-backend"
-ZEROCLAW_DIR="/opt/zeroclaw"
+ZEROCLAW_CONFIG_DIR="${HOME}/.zeroclaw"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 info()    { echo -e "${GREEN}[claw-zettel]${NC} $*"; }
@@ -162,18 +161,16 @@ step "[6/7] zeroclaw AI agent"
 
 INSTALL_ZEROCLAW=false
 ZEROCLAW_API_KEY=""
-ZEROCLAW_TRIGGER="@Andy"
 
-echo "    zeroclaw is an AI assistant that runs agents in isolated"
-echo "    containers. It will be restricted to your zettelkasten notes and its"
-echo "    own config files — nothing else on the server."
+echo "    zeroclaw is a self-hosted AI agent runtime (Rust binary). It connects"
+echo "    to LLM providers, channels (Discord, Telegram, CLI, …) and tools."
+echo "    Config lives at ~/.zeroclaw/config.toml"
 echo ""
 
 if ask_yn "Install zeroclaw AI agent?" "n"; then
   INSTALL_ZEROCLAW=true
-  ask_secret ZEROCLAW_API_KEY "z.ia API key"
+  ask_secret ZEROCLAW_API_KEY "z.ia API key (ZAI_API_KEY)"
   [[ -z "$ZEROCLAW_API_KEY" ]] && error "z.ia API key is required for zeroclaw."
-  ask ZEROCLAW_TRIGGER "Agent trigger word" "@Andy"
 fi
 
 # ─────────────────────────────────────────────
@@ -441,100 +438,24 @@ fi
 #  zeroclaw
 # ─────────────────────────────────────────────
 if [[ "$INSTALL_ZEROCLAW" == "true" ]]; then
-  info "Setting up zeroclaw…"
+  info "Installing zeroclaw…"
 
-  # Clone or update
-  if [[ -d "$ZEROCLAW_DIR/.git" ]]; then
-    info "Updating existing zeroclaw at $ZEROCLAW_DIR"
-    git -C "$ZEROCLAW_DIR" pull --ff-only
+  # Install the zeroclaw binary (prebuilt, skip onboard wizard — configure below)
+  SKIP_ONBOARD=true curl -fsSL \
+    https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/master/install.sh \
+    | bash -s -- --prebuilt --skip-onboard || error "zeroclaw installation failed."
+
+  ZEROCLAW_BIN="${HOME}/.cargo/bin/zeroclaw"
+  if [[ ! -f "$ZEROCLAW_BIN" ]]; then
+    warn "zeroclaw binary not found at $ZEROCLAW_BIN — onboard skipped."
+    warn "After adding ~/.cargo/bin to PATH, run: zeroclaw onboard --provider zai"
   else
-    info "Cloning zeroclaw to $ZEROCLAW_DIR"
-    git clone --depth 1 "$ZEROCLAW_REPO" "$ZEROCLAW_DIR"
+    info "Configuring zeroclaw with z.ia provider (glm-5.1)…"
+    ZAI_API_KEY="$ZEROCLAW_API_KEY" ZEROCLAW_MODEL="glm-5.1" \
+      "$ZEROCLAW_BIN" onboard --provider zai --api-key "$ZEROCLAW_API_KEY" || \
+      warn "zeroclaw onboard failed — run manually: zeroclaw onboard --provider zai"
+    info "Run 'zeroclaw agent' to start chatting, or 'zeroclaw service install' for always-on."
   fi
-
-  # Mount allowlist — restrict agent to its own configs + notes only
-  mkdir -p "${HOME}/.config/zeroclaw"
-  cat > "${HOME}/.config/zeroclaw/mount-allowlist.json" <<MEOF
-{
-  "allowedRoots": [
-    {
-      "path": "${ZEROCLAW_DIR}/groups",
-      "allowReadWrite": true,
-      "description": "zeroclaw agent group configs (own directory)"
-    },
-    {
-      "path": "${NOTES_PATH}",
-      "allowReadWrite": true,
-      "description": "Zettelkasten notes"
-    }
-  ],
-  "blockedPatterns": [
-    ".env",
-    "id_rsa",
-    "id_ed25519",
-    "*.key",
-    "*.pem",
-    "*.sqlite"
-  ],
-  "nonMainReadOnly": true
-}
-MEOF
-  info "Mount allowlist written — zeroclaw restricted to its configs and notes."
-
-  # Pre-create the zettelkasten agent group
-  ZETTEL_GROUP_DIR="$ZEROCLAW_DIR/groups/zettelkasten"
-  mkdir -p "$ZETTEL_GROUP_DIR"
-  cat > "$ZETTEL_GROUP_DIR/CLAUDE.md" <<GEOF
-@./.claude-global.md
-# Zettelkasten Assistant
-
-You are a personal knowledge management assistant.
-Your notes are mounted at \`/workspace/extra/notes/\`.
-
-## Capabilities
-
-- Read, create, and edit Markdown notes in \`/workspace/extra/notes/\`
-- Link ideas between notes and suggest connections
-- Search and summarise notes on request
-- Help maintain note structure and metadata
-
-## Hard Restrictions
-
-You have access to exactly two locations:
-- \`/workspace/group/\` — your own config and memory (this directory)
-- \`/workspace/extra/notes/\` — the Zettelkasten notes
-
-Do **not** attempt to read or write any other path.
-Do **not** run system-level commands unrelated to managing notes.
-Do **not** access the network unless asked to look something up.
-
-## Note Format
-
-Notes are plain Markdown. Follow the conventions already present in the
-notes directory (filenames, front matter, linking style, etc.).
-GEOF
-  info "Zettelkasten agent group created."
-
-  echo ""
-  warn "─────────────────────────────────────────────"
-  warn " zeroclaw setup will start now."
-  warn ""
-  warn " When asked to name your agent, use: ${ZEROCLAW_TRIGGER}"
-  warn ""
-  warn " After completing the setup wizard, connect the agent"
-  warn " to your notes by telling your main agent:"
-  warn ""
-  warn "   Register the zettelkasten group with folder 'zettelkasten'"
-  warn "   and mount ${NOTES_PATH} at /workspace/extra/notes/ (read-write)"
-  warn "─────────────────────────────────────────────"
-  echo ""
-  printf "  Press Enter to continue into zeroclaw setup…" >/dev/tty
-  IFS= read -r _ </dev/tty
-
-  cd "$ZEROCLAW_DIR"
-  ZAI_API_KEY="$ZEROCLAW_API_KEY" bash zeroclaw.sh || \
-    warn "zeroclaw setup exited — you can re-run it with: bash $ZEROCLAW_DIR/zeroclaw.sh"
-  cd - >/dev/null
 fi
 
 # ─────────────────────────────────────────────
@@ -634,8 +555,8 @@ fi
 
 warn ".env:      $BACKEND_DIR/apps/backend/.env"
 if [[ "$INSTALL_ZEROCLAW" == "true" ]]; then
-  warn "zeroclaw:  $ZEROCLAW_DIR"
-  warn "allowlist: ${HOME}/.config/zeroclaw/mount-allowlist.json"
+  warn "zeroclaw:  ${HOME}/.cargo/bin/zeroclaw"
+  warn "config:    ${ZEROCLAW_CONFIG_DIR}/config.toml"
 fi
 if [[ "$INSTALL_OPENCODE" == "true" ]]; then
   warn "opencode:  ${HOME}/.config/opencode/config.json"

@@ -4,7 +4,8 @@
 set -euo pipefail
 
 BACKEND_DIR="/opt/claw-zettel-backend"
-ZEROCLAW_DIR="/opt/zeroclaw"
+ZEROCLAW_BIN="${HOME}/.cargo/bin/zeroclaw"
+ZEROCLAW_CONFIG_DIR="${HOME}/.zeroclaw"
 DEFAULT_NOTES_PATH="/opt/zettelkasten"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -99,23 +100,22 @@ fi
 # ─────────────────────────────────────────────
 #  zeroclaw
 # ─────────────────────────────────────────────
-if [[ -d "$ZEROCLAW_DIR" ]]; then
-  if ask_yn "Stop zeroclaw and remove it from $ZEROCLAW_DIR?"; then
-    # Stop any running zeroclaw containers
-    if command -v docker >/dev/null 2>&1; then
-      docker ps --filter "label=com.docker.compose.project=zeroclaw" -q \
-        | xargs -r docker stop 2>/dev/null || true
+if [[ -f "$ZEROCLAW_BIN" ]]; then
+  if ask_yn "Remove zeroclaw binary at $ZEROCLAW_BIN?"; then
+    # Stop any running zeroclaw service first
+    if command -v zeroclaw >/dev/null 2>&1; then
+      zeroclaw service uninstall 2>/dev/null || true
     fi
-    rm -rf "$ZEROCLAW_DIR"
-    info "zeroclaw removed."
+    rm -f "$ZEROCLAW_BIN"
+    info "zeroclaw binary removed."
     ANYTHING_DONE=true
   fi
 fi
 
-# Remove zeroclaw config/allowlist
-if [[ -d "${HOME}/.config/zeroclaw" ]]; then
-  if ask_yn "Remove zeroclaw config at ${HOME}/.config/zeroclaw?" "n"; then
-    rm -rf "${HOME}/.config/zeroclaw"
+# Remove zeroclaw config
+if [[ -d "$ZEROCLAW_CONFIG_DIR" ]]; then
+  if ask_yn "Remove zeroclaw config at $ZEROCLAW_CONFIG_DIR?" "n"; then
+    rm -rf "$ZEROCLAW_CONFIG_DIR"
     info "zeroclaw config removed."
     ANYTHING_DONE=true
   fi
