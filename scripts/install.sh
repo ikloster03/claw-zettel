@@ -295,7 +295,8 @@ NOTES_REPO_PATH=${NOTES_PATH}
 GIT_REMOTE_URL=${GIT_REMOTE}
 GIT_USER_NAME=${GIT_USER:-clawzettel}
 GIT_USER_EMAIL=clawzettel@claw-zettel
-CLAWZETTEL_BASE_URL=http://host.docker.internal:4000
+CLAWZETTEL_BASE_URL=http://host.docker.internal:42617
+CLAWZETTEL_TOKEN=
 DB_PATH=/app/data/data.sqlite
 ENVEOF
 
@@ -465,7 +466,44 @@ if [[ "$INSTALL_ZEROCLAW" == "true" ]]; then
       --provider "zai" \
       --api-key "$ZEROCLAW_API_KEY" || \
       warn "zeroclaw onboard failed — run manually: zeroclaw onboard --provider \"zai\" --api-key \"YOUR_KEY\""
-    info "Run 'zeroclaw service start' to start the AI agent."
+
+    # Allow Docker containers to reach the gateway
+    ZEROCLAW_CONFIG="${HOME}/.zeroclaw/config.toml"
+    if [[ -f "$ZEROCLAW_CONFIG" ]]; then
+      sed -i 's/^host = "127.0.0.1"/host = "0.0.0.0"/' "$ZEROCLAW_CONFIG"
+      sed -i 's/^allow_public_bind = false/allow_public_bind = true/' "$ZEROCLAW_CONFIG"
+      info "zeroclaw gateway configured to accept Docker connections."
+    fi
+
+    # Start the service
+    "$ZEROCLAW_BIN" service install 2>/dev/null || true
+    "$ZEROCLAW_BIN" service start 2>/dev/null || true
+    sleep 3
+
+    # Pair with gateway and save token to backend .env
+    GATEWAY_PORT=$(grep -A10 '^\[gateway\]' "$ZEROCLAW_CONFIG" 2>/dev/null | grep '^port' | grep -oP '\d+' | head -1)
+    GATEWAY_PORT="${GATEWAY_PORT:-42617}"
+    PAIRCODE=$("$ZEROCLAW_BIN" gateway get-paircode 2>&1 | grep -E "^\s+[0-9]{6,8}\s*$" | tr -d " " | head -1)
+
+    if [[ -n "$PAIRCODE" ]]; then
+      PAIR_RESP=$(curl -sf -X POST "http://localhost:${GATEWAY_PORT}/pair" \
+        -H "X-Pairing-Code: $PAIRCODE" \
+        -H "Content-Type: application/json" \
+        -d "{}" 2>/dev/null)
+      ZEROCLAW_TOKEN=$(echo "$PAIR_RESP" | grep -oP '(?<="token":")[^"]+')
+
+      if [[ -n "$ZEROCLAW_TOKEN" ]]; then
+        sed -i "s|^CLAWZETTEL_TOKEN=.*|CLAWZETTEL_TOKEN=$ZEROCLAW_TOKEN|" \
+          "$BACKEND_DIR/apps/backend/.env"
+        info "zeroclaw gateway paired. Token saved to .env."
+      else
+        warn "Could not auto-pair with zeroclaw gateway. Pair manually:"
+        warn "  POST http://localhost:${GATEWAY_PORT}/pair  with  X-Pairing-Code: \$(zeroclaw gateway get-paircode)"
+        warn "  Then add CLAWZETTEL_TOKEN=<token> to $BACKEND_DIR/apps/backend/.env"
+      fi
+    else
+      warn "Could not get zeroclaw pairing code. Pair manually after service starts."
+    fi
   fi
 fi
 

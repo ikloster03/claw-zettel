@@ -4,7 +4,9 @@ export interface Message {
 }
 
 const CLAWZETTEL_URL = () =>
-  process.env.CLAWZETTEL_BASE_URL ?? "http://localhost:4000";
+  process.env.CLAWZETTEL_BASE_URL ?? "http://host.docker.internal:42617";
+
+const CLAWZETTEL_TOKEN = () => process.env.CLAWZETTEL_TOKEN ?? "";
 
 async function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -63,6 +65,12 @@ async function* mockChat(messages: Message[]): AsyncGenerator<string> {
   }
 }
 
+function buildPrompt(messages: Message[]): string {
+  return messages
+    .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+    .join("\n") + "\nAssistant:";
+}
+
 export async function* clawzettelChat(
   messages: Message[]
 ): AsyncGenerator<string> {
@@ -71,44 +79,31 @@ export async function* clawzettelChat(
     return;
   }
 
-  const res = await fetch(`${CLAWZETTEL_URL()}/chat`, {
+  const token = CLAWZETTEL_TOKEN();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const message = buildPrompt(messages);
+
+  const res = await fetch(`${CLAWZETTEL_URL()}/webhook`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
+    headers,
+    body: JSON.stringify({ message }),
   });
 
-  if (!res.ok || !res.body) {
+  if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
-    throw new Error(`clawzettel error: ${text}`);
+    throw new Error(`clawzettel error ${res.status}: ${text}`);
   }
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+  const data = await res.json() as Record<string, unknown>;
+  const reply =
+    (data.response as string) ??
+    (data.reply as string) ??
+    (data.message as string) ??
+    (data.content as string) ??
+    (data.text as string) ??
+    JSON.stringify(data);
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (!line.startsWith("data:")) continue;
-      const raw = line.slice(5).trim();
-      if (raw === "[DONE]") return;
-      try {
-        const parsed = JSON.parse(raw);
-        const chunk: string =
-          parsed?.choices?.[0]?.delta?.content ??
-          parsed?.content ??
-          parsed?.chunk ??
-          "";
-        if (chunk) yield chunk;
-      } catch {
-        // non-JSON SSE line, skip
-      }
-    }
-  }
+  yield reply;
 }

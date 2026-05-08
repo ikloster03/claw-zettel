@@ -11,7 +11,8 @@ services:
       GIT_REMOTE_URL: ${GIT_REMOTE_URL:-}
       GIT_USER_NAME: ${GIT_USER_NAME:-clawzettel}
       GIT_USER_EMAIL: ${GIT_USER_EMAIL:-clawzettel@claw-zettel}
-      CLAWZETTEL_BASE_URL: ${CLAWZETTEL_BASE_URL:-http://host.docker.internal:4000}
+      CLAWZETTEL_BASE_URL: ${CLAWZETTEL_BASE_URL:-http://host.docker.internal:42617}
+      CLAWZETTEL_TOKEN: ${CLAWZETTEL_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
