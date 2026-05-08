@@ -65,10 +65,16 @@ chatsRouter.post("/:id/messages", async (c) => {
 
   return streamSSE(c, async (stream) => {
     let fullContent = "";
+    let fullThinking = "";
     try {
       for await (const chunk of clawzettelChat(history)) {
-        fullContent += chunk;
-        await stream.writeSSE({ data: JSON.stringify({ chunk }) });
+        if (chunk.type === "text") {
+          fullContent += chunk.text;
+          await stream.writeSSE({ data: JSON.stringify({ chunk: chunk.text }) });
+        } else if (chunk.type === "thinking") {
+          fullThinking += chunk.text;
+          await stream.writeSSE({ data: JSON.stringify({ thinking: chunk.text }) });
+        }
       }
     } catch (err) {
       await stream.writeSSE({ data: JSON.stringify({ error: String(err) }), event: "error" });
@@ -77,8 +83,8 @@ chatsRouter.post("/:id/messages", async (c) => {
 
     const asstMsgId = crypto.randomUUID();
     db.run(
-      "INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
-      [asstMsgId, id, fullContent, Date.now()]
+      "INSERT INTO messages (id, chat_id, role, content, thinking, created_at) VALUES (?, ?, 'assistant', ?, ?, ?)",
+      [asstMsgId, id, fullContent, fullThinking, Date.now()]
     );
     db.run("UPDATE chats SET updated_at = ? WHERE id = ?", [Date.now(), id]);
     await stream.writeSSE({ data: JSON.stringify({ done: true, id: asstMsgId }), event: "done" });

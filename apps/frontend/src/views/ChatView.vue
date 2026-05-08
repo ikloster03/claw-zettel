@@ -64,13 +64,50 @@
           <div v-if="!messages.length" class="text-center text-sm text-[var(--color-muted)] mt-12">
             Send a message to start the conversation
           </div>
+
           <div
             v-for="msg in messages"
             :key="msg.id"
-            class="flex"
-            :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
+            class="flex flex-col"
+            :class="msg.role === 'user' ? 'items-end' : 'items-start'"
           >
+            <!-- Thinking block (assistant only) -->
+            <template v-if="msg.role === 'assistant'">
+              <!-- Streaming indicator: no content yet -->
+              <div
+                v-if="isStreamingMsg(msg) && !msg.content && !msg.thinking"
+                class="flex items-center gap-1.5 text-xs text-[var(--color-muted)] px-1 mb-1"
+              >
+                <span class="inline-flex gap-1">
+                  <span class="w-1.5 h-1.5 rounded-full bg-current animate-bounce [animation-delay:0ms]"></span>
+                  <span class="w-1.5 h-1.5 rounded-full bg-current animate-bounce [animation-delay:150ms]"></span>
+                  <span class="w-1.5 h-1.5 rounded-full bg-current animate-bounce [animation-delay:300ms]"></span>
+                </span>
+              </div>
+
+              <!-- Thinking block -->
+              <details
+                v-if="msg.thinking"
+                :open="isStreamingMsg(msg)"
+                class="mb-1.5 max-w-[80%] w-fit"
+              >
+                <summary
+                  class="flex items-center gap-1.5 text-xs text-[var(--color-muted)] cursor-pointer select-none list-none px-2 py-1 rounded-lg hover:bg-[var(--color-border)] transition-colors w-fit"
+                >
+                  <Brain class="size-3 shrink-0" />
+                  <span>{{ isStreamingMsg(msg) ? 'Рассуждение...' : 'Рассуждение' }}</span>
+                  <ChevronDown class="size-3 shrink-0 opacity-50 details-arrow" />
+                </summary>
+                <div
+                  ref="thinkingEl"
+                  class="mt-1 px-3 py-2 text-xs text-[var(--color-muted)] font-mono whitespace-pre-wrap bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl max-h-56 overflow-y-auto"
+                >{{ msg.thinking }}</div>
+              </details>
+            </template>
+
+            <!-- Message bubble -->
             <div
+              v-if="msg.content || msg.role === 'user'"
               class="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm"
               :class="msg.role === 'user'
                 ? 'bg-[var(--color-accent)] text-white rounded-br-sm'
@@ -121,9 +158,10 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Plus, Send, Trash2, ChevronLeft, MessageSquare } from "lucide-vue-next";
+import { Plus, Send, Trash2, ChevronLeft, ChevronDown, MessageSquare, Brain } from "lucide-vue-next";
 import { marked } from "marked";
 import { useChatsStore } from "@/stores/chats";
+import type { Message } from "@/stores/chats";
 
 const store = useChatsStore();
 const route = useRoute();
@@ -132,11 +170,17 @@ const router = useRouter();
 const activeChatId = ref<string | null>((route.params.id as string) ?? null);
 const input = ref("");
 const streaming = ref(false);
+const streamingMsgId = ref<string | null>(null);
 const messagesEl = ref<HTMLElement | null>(null);
+const thinkingEl = ref<HTMLElement | null>(null);
 
 const isMobile = computed(() => window.innerWidth < 768);
 const activeChat = computed(() => store.chats.find((c) => c.id === activeChatId.value));
 const messages = computed(() => (activeChatId.value ? store.messages[activeChatId.value] ?? [] : []));
+
+function isStreamingMsg(msg: Message) {
+  return streaming.value && msg.id === streamingMsgId.value;
+}
 
 function renderMd(content: string): string {
   return marked.parse(content) as string;
@@ -151,6 +195,12 @@ async function scrollToBottom() {
   if (messagesEl.value) {
     messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
   }
+}
+
+async function scrollThinkingToBottom() {
+  await nextTick();
+  const el = Array.isArray(thinkingEl.value) ? thinkingEl.value[thinkingEl.value.length - 1] : thinkingEl.value;
+  if (el) el.scrollTop = el.scrollHeight;
 }
 
 onMounted(async () => {
@@ -192,11 +242,27 @@ async function sendMessage() {
   streaming.value = true;
   try {
     for await (const _ of store.sendMessage(activeChatId.value, text)) {
+      const msgs = store.messages[activeChatId.value];
+      if (msgs?.length) {
+        const last = msgs[msgs.length - 1];
+        streamingMsgId.value = last.id;
+        if (last.thinking) scrollThinkingToBottom();
+      }
       scrollToBottom();
     }
   } finally {
     streaming.value = false;
+    streamingMsgId.value = null;
     scrollToBottom();
   }
 }
 </script>
+
+<style scoped>
+details[open] .details-arrow {
+  transform: rotate(180deg);
+}
+.details-arrow {
+  transition: transform 0.15s;
+}
+</style>

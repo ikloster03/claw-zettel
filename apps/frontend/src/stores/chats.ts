@@ -14,6 +14,7 @@ export interface Message {
   chat_id: string;
   role: "user" | "assistant";
   content: string;
+  thinking?: string | null;
   created_at: number;
 }
 
@@ -52,10 +53,7 @@ export const useChatsStore = defineStore("chats", () => {
     messages.value[chatId] = await conn.api<Message[]>(`/chats/${chatId}/messages`);
   }
 
-  async function* sendMessage(
-    chatId: string,
-    content: string
-  ): AsyncGenerator<string> {
+  async function* sendMessage(chatId: string, content: string): AsyncGenerator<void> {
     const userMsg: Message = {
       id: crypto.randomUUID(),
       chat_id: chatId,
@@ -71,6 +69,7 @@ export const useChatsStore = defineStore("chats", () => {
       chat_id: chatId,
       role: "assistant",
       content: "",
+      thinking: "",
       created_at: Date.now(),
     };
     messages.value[chatId].push(placeholder);
@@ -104,13 +103,17 @@ export const useChatsStore = defineStore("chats", () => {
           const parsed = JSON.parse(raw);
           if (parsed.chunk) {
             placeholder.content += parsed.chunk;
-            yield parsed.chunk;
+            yield;
+          }
+          if (parsed.thinking) {
+            placeholder.thinking = (placeholder.thinking ?? "") + parsed.thinking;
+            yield;
           }
           if (parsed.done && parsed.id) {
             placeholder.id = parsed.id;
           }
         } catch {
-          // skip
+          // skip malformed
         }
       }
     }

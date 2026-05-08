@@ -30,3 +30,9 @@ db.run(`
 db.run(`
   CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id)
 `);
+
+try {
+  db.run("ALTER TABLE messages ADD COLUMN thinking TEXT DEFAULT ''");
+} catch {
+  // Column already exists
+};
