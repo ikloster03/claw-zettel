@@ -295,7 +295,7 @@ NOTES_REPO_PATH=${NOTES_PATH}
 GIT_REMOTE_URL=${GIT_REMOTE}
 GIT_USER_NAME=${GIT_USER:-clawzettel}
 GIT_USER_EMAIL=clawzettel@claw-zettel
-CLAWZETTEL_BASE_URL=${FRONTEND_PUBLIC_URL:-http://localhost:${FRONTEND_PORT}}
+CLAWZETTEL_BASE_URL=http://host.docker.internal:4000
 DB_PATH=/app/data/data.sqlite
 ENVEOF
 
@@ -445,16 +445,27 @@ if [[ "$INSTALL_ZEROCLAW" == "true" ]]; then
     https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/master/install.sh \
     | bash -s -- --prebuilt --skip-onboard || error "zeroclaw installation failed."
 
+  # Persist ~/.cargo/bin in PATH for all future sessions
+  CARGO_PATH_LINE='export PATH="$HOME/.cargo/bin:$PATH"'
+  for rc_file in "$HOME/.bashrc" "$HOME/.profile"; do
+    if [[ -f "$rc_file" ]] && ! grep -qF '.cargo/bin' "$rc_file"; then
+      echo "$CARGO_PATH_LINE" >> "$rc_file"
+      info "Added ~/.cargo/bin to PATH in $rc_file"
+    fi
+  done
+  export PATH="${HOME}/.cargo/bin:${PATH}"
+
   ZEROCLAW_BIN="${HOME}/.cargo/bin/zeroclaw"
   if [[ ! -f "$ZEROCLAW_BIN" ]]; then
     warn "zeroclaw binary not found at $ZEROCLAW_BIN — onboard skipped."
-    warn "After adding ~/.cargo/bin to PATH, run: zeroclaw onboard --provider zai"
+    warn "Run: zeroclaw onboard --provider \"zai\" --api-key \"YOUR_ZAI_API_KEY\""
   else
-    info "Configuring zeroclaw with z.ia provider (glm-5.1)…"
-    ZAI_API_KEY="$ZEROCLAW_API_KEY" ZEROCLAW_MODEL="glm-5.1" \
-      "$ZEROCLAW_BIN" onboard --provider zai --api-key "$ZEROCLAW_API_KEY" || \
-      warn "zeroclaw onboard failed — run manually: zeroclaw onboard --provider zai"
-    info "Run 'zeroclaw agent' to start chatting, or 'zeroclaw service install' for always-on."
+    info "Configuring zeroclaw with z.ia provider…"
+    "$ZEROCLAW_BIN" onboard \
+      --provider "zai" \
+      --api-key "$ZEROCLAW_API_KEY" || \
+      warn "zeroclaw onboard failed — run manually: zeroclaw onboard --provider \"zai\" --api-key \"YOUR_KEY\""
+    info "Run 'zeroclaw service start' to start the AI agent."
   fi
 fi
 
