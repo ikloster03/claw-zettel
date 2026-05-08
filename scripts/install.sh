@@ -3,7 +3,6 @@ set -euo pipefail
 
 REPO="https://github.com/ikloster03/claw-zettel"
 BACKEND_DIR="/opt/claw-zettel-backend"
-ZEROCLAW_CONFIG_DIR="${HOME}/.zeroclaw"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 info()    { echo -e "${GREEN}[claw-zettel]${NC} $*"; }
@@ -155,22 +154,22 @@ if ask_yn "Do you have a domain pointing to this server?" "n"; then
 fi
 
 # ─────────────────────────────────────────────
-#  Step 6: zeroclaw AI agent (optional)
+#  Step 6: GLM AI chat
 # ─────────────────────────────────────────────
-step "[6/7] zeroclaw AI agent"
+step "[6/7] GLM AI chat"
 
-INSTALL_ZEROCLAW=false
-ZEROCLAW_API_KEY=""
+GLM_API_KEY=""
+GLM_BASE_URL="https://api.z.ai/api/coding/paas/v4"
+GLM_MODEL="glm-z1-flash"
 
-echo "    zeroclaw is a self-hosted AI agent runtime (Rust binary). It connects"
-echo "    to LLM providers, channels (Discord, Telegram, CLI, …) and tools."
-echo "    Config lives at ~/.zeroclaw/config.toml"
+echo "    The AI chat feature uses the GLM API (z.ai). Get your key at z.ai."
+echo "    Leave blank to start in mock mode (no real AI responses)."
 echo ""
 
-if ask_yn "Install zeroclaw AI agent?" "n"; then
-  INSTALL_ZEROCLAW=true
-  ask_secret ZEROCLAW_API_KEY "z.ia API key (ZAI_API_KEY)"
-  [[ -z "$ZEROCLAW_API_KEY" ]] && error "z.ia API key is required for zeroclaw."
+ask_secret GLM_API_KEY "GLM API key (leave blank for mock mode)"
+if [[ -n "$GLM_API_KEY" ]]; then
+  ask GLM_BASE_URL "GLM base URL" "$GLM_BASE_URL"
+  ask GLM_MODEL "GLM model" "$GLM_MODEL"
 fi
 
 # ─────────────────────────────────────────────
@@ -287,6 +286,16 @@ mkdir -p "$BACKEND_DIR/apps/backend/data"
 # ─────────────────────────────────────────────
 #  Write backend .env
 # ─────────────────────────────────────────────
+if [[ -n "$GLM_API_KEY" ]]; then
+  CLAWZETTEL_MODE_LINE=""
+  GLM_LINES="GLM_API_KEY=${GLM_API_KEY}
+GLM_BASE_URL=${GLM_BASE_URL}
+GLM_MODEL=${GLM_MODEL}"
+else
+  CLAWZETTEL_MODE_LINE="CLAWZETTEL_MODE=mock"
+  GLM_LINES="# GLM_API_KEY= (not set — running in mock mode)"
+fi
+
 cat > "$BACKEND_DIR/apps/backend/.env" <<ENVEOF
 PORT=${BACKEND_PORT}
 PASSWORD=${PASSWORD}
@@ -295,8 +304,8 @@ NOTES_REPO_PATH=${NOTES_PATH}
 GIT_REMOTE_URL=${GIT_REMOTE}
 GIT_USER_NAME=${GIT_USER:-clawzettel}
 GIT_USER_EMAIL=clawzettel@claw-zettel
-CLAWZETTEL_BASE_URL=http://host.docker.internal:42617
-CLAWZETTEL_TOKEN=
+${GLM_LINES}
+${CLAWZETTEL_MODE_LINE}
 DB_PATH=/app/data/data.sqlite
 ENVEOF
 
@@ -436,78 +445,6 @@ DCEOF
 fi
 
 # ─────────────────────────────────────────────
-#  zeroclaw
-# ─────────────────────────────────────────────
-if [[ "$INSTALL_ZEROCLAW" == "true" ]]; then
-  info "Installing zeroclaw…"
-
-  # Install the zeroclaw binary (prebuilt, skip onboard wizard — configure below)
-  SKIP_ONBOARD=true curl -fsSL \
-    https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/master/install.sh \
-    | bash -s -- --prebuilt --skip-onboard || error "zeroclaw installation failed."
-
-  # Persist ~/.cargo/bin in PATH for all future sessions
-  CARGO_PATH_LINE='export PATH="$HOME/.cargo/bin:$PATH"'
-  for rc_file in "$HOME/.bashrc" "$HOME/.profile"; do
-    if [[ -f "$rc_file" ]] && ! grep -qF '.cargo/bin' "$rc_file"; then
-      echo "$CARGO_PATH_LINE" >> "$rc_file"
-      info "Added ~/.cargo/bin to PATH in $rc_file"
-    fi
-  done
-  export PATH="${HOME}/.cargo/bin:${PATH}"
-
-  ZEROCLAW_BIN="${HOME}/.cargo/bin/zeroclaw"
-  if [[ ! -f "$ZEROCLAW_BIN" ]]; then
-    warn "zeroclaw binary not found at $ZEROCLAW_BIN — onboard skipped."
-    warn "Run: zeroclaw onboard --provider \"zai\" --api-key \"YOUR_ZAI_API_KEY\""
-  else
-    info "Configuring zeroclaw with z.ia provider…"
-    "$ZEROCLAW_BIN" onboard \
-      --provider "zai" \
-      --api-key "$ZEROCLAW_API_KEY" || \
-      warn "zeroclaw onboard failed — run manually: zeroclaw onboard --provider \"zai\" --api-key \"YOUR_KEY\""
-
-    # Allow Docker containers to reach the gateway
-    ZEROCLAW_CONFIG="${HOME}/.zeroclaw/config.toml"
-    if [[ -f "$ZEROCLAW_CONFIG" ]]; then
-      sed -i 's/^host = "127.0.0.1"/host = "0.0.0.0"/' "$ZEROCLAW_CONFIG"
-      sed -i 's/^allow_public_bind = false/allow_public_bind = true/' "$ZEROCLAW_CONFIG"
-      info "zeroclaw gateway configured to accept Docker connections."
-    fi
-
-    # Start the service
-    "$ZEROCLAW_BIN" service install 2>/dev/null || true
-    "$ZEROCLAW_BIN" service start 2>/dev/null || true
-    sleep 3
-
-    # Pair with gateway and save token to backend .env
-    GATEWAY_PORT=$(grep -A10 '^\[gateway\]' "$ZEROCLAW_CONFIG" 2>/dev/null | grep '^port' | grep -oP '\d+' | head -1)
-    GATEWAY_PORT="${GATEWAY_PORT:-42617}"
-    PAIRCODE=$("$ZEROCLAW_BIN" gateway get-paircode 2>&1 | grep -E "^\s+[0-9]{6,8}\s*$" | tr -d " " | head -1)
-
-    if [[ -n "$PAIRCODE" ]]; then
-      PAIR_RESP=$(curl -sf -X POST "http://localhost:${GATEWAY_PORT}/pair" \
-        -H "X-Pairing-Code: $PAIRCODE" \
-        -H "Content-Type: application/json" \
-        -d "{}" 2>/dev/null)
-      ZEROCLAW_TOKEN=$(echo "$PAIR_RESP" | grep -oP '(?<="token":")[^"]+')
-
-      if [[ -n "$ZEROCLAW_TOKEN" ]]; then
-        sed -i "s|^CLAWZETTEL_TOKEN=.*|CLAWZETTEL_TOKEN=$ZEROCLAW_TOKEN|" \
-          "$BACKEND_DIR/apps/backend/.env"
-        info "zeroclaw gateway paired. Token saved to .env."
-      else
-        warn "Could not auto-pair with zeroclaw gateway. Pair manually:"
-        warn "  POST http://localhost:${GATEWAY_PORT}/pair  with  X-Pairing-Code: \$(zeroclaw gateway get-paircode)"
-        warn "  Then add CLAWZETTEL_TOKEN=<token> to $BACKEND_DIR/apps/backend/.env"
-      fi
-    else
-      warn "Could not get zeroclaw pairing code. Pair manually after service starts."
-    fi
-  fi
-fi
-
-# ─────────────────────────────────────────────
 #  opencode
 # ─────────────────────────────────────────────
 if [[ "$INSTALL_OPENCODE" == "true" ]]; then
@@ -603,9 +540,10 @@ if [[ "$GENERATED_PASSWORD" == "true" ]]; then
 fi
 
 warn ".env:      $BACKEND_DIR/apps/backend/.env"
-if [[ "$INSTALL_ZEROCLAW" == "true" ]]; then
-  warn "zeroclaw:  ${HOME}/.cargo/bin/zeroclaw"
-  warn "config:    ${ZEROCLAW_CONFIG_DIR}/config.toml"
+if [[ -z "$GLM_API_KEY" ]]; then
+  warn "AI chat:   mock mode (set GLM_API_KEY in .env to enable real AI)"
+else
+  warn "AI chat:   GLM ${GLM_MODEL} via ${GLM_BASE_URL}"
 fi
 if [[ "$INSTALL_OPENCODE" == "true" ]]; then
   warn "opencode:  ${HOME}/.config/opencode/config.json"

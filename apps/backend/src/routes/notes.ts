@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { join } from "path";
+import { join, resolve } from "path";
 import { readdir, readFile, writeFile, unlink, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import { authMiddleware } from "../middleware/auth";
@@ -9,7 +9,13 @@ export const notesRouter = new Hono();
 notesRouter.use("*", authMiddleware);
 
 function notesRoot(): string {
-  return process.env.NOTES_REPO_PATH ?? join(process.cwd(), "notes");
+  return resolve(process.env.NOTES_REPO_PATH ?? join(process.cwd(), "notes"));
+}
+
+function safeFullPath(root: string, userPath: string): string | null {
+  const full = resolve(join(root, userPath));
+  if (full !== root && !full.startsWith(root + "/")) return null;
+  return full;
 }
 
 async function listMdFiles(dir: string, base = ""): Promise<string[]> {
@@ -54,7 +60,9 @@ notesRouter.get("/search", async (c) => {
 
 notesRouter.get("/*", async (c) => {
   const path = c.req.path.replace(/^\/notes\//, "");
-  const fullPath = join(notesRoot(), path);
+  const root = notesRoot();
+  const fullPath = safeFullPath(root, path);
+  if (!fullPath) return c.json({ error: "Invalid path" }, 400);
   if (!existsSync(fullPath)) return c.json({ error: "Not found" }, 404);
   const content = await readFile(fullPath, "utf-8");
   return c.json({ path, content });
@@ -62,7 +70,9 @@ notesRouter.get("/*", async (c) => {
 
 notesRouter.post("/", async (c) => {
   const { path, content } = await c.req.json<{ path: string; content: string }>();
-  const fullPath = join(notesRoot(), path);
+  const root = notesRoot();
+  const fullPath = safeFullPath(root, path);
+  if (!fullPath) return c.json({ error: "Invalid path" }, 400);
   await mkdir(join(fullPath, ".."), { recursive: true });
   await writeFile(fullPath, content, "utf-8");
   await gitCommitAndPush(`create: ${path}`);
@@ -72,7 +82,9 @@ notesRouter.post("/", async (c) => {
 notesRouter.put("/*", async (c) => {
   const path = c.req.path.replace(/^\/notes\//, "");
   const { content } = await c.req.json<{ content: string }>();
-  const fullPath = join(notesRoot(), path);
+  const root = notesRoot();
+  const fullPath = safeFullPath(root, path);
+  if (!fullPath) return c.json({ error: "Invalid path" }, 400);
   if (!existsSync(fullPath)) return c.json({ error: "Not found" }, 404);
   await writeFile(fullPath, content, "utf-8");
   await gitCommitAndPush(`update: ${path}`);
@@ -81,7 +93,9 @@ notesRouter.put("/*", async (c) => {
 
 notesRouter.delete("/*", async (c) => {
   const path = c.req.path.replace(/^\/notes\//, "");
-  const fullPath = join(notesRoot(), path);
+  const root = notesRoot();
+  const fullPath = safeFullPath(root, path);
+  if (!fullPath) return c.json({ error: "Invalid path" }, 400);
   if (!existsSync(fullPath)) return c.json({ error: "Not found" }, 404);
   await unlink(fullPath);
   await gitCommitAndPush(`delete: ${path}`);

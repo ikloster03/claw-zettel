@@ -166,6 +166,14 @@ import { Plus, Search, Pencil, Trash2, ChevronLeft, FileText } from "lucide-vue-
 import { marked } from "marked";
 import { useNotesStore } from "@/stores/notes";
 
+marked.use({
+  renderer: {
+    html({ text }: { text: string }) {
+      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+  }
+});
+
 const store = useNotesStore();
 const isMobile = computed(() => window.innerWidth < 768);
 const isEditing = ref(false);
