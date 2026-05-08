@@ -71,7 +71,7 @@ echo ""
 # ─────────────────────────────────────────────
 #  Step 1: Notes repository
 # ─────────────────────────────────────────────
-step "[1/7] Notes repository"
+step "[1/5] Notes repository"
 
 GIT_REMOTE="" GIT_USER="" GIT_TOKEN=""
 
@@ -89,7 +89,7 @@ ask NOTES_PATH "Local notes path" "/opt/zettelkasten"
 # ─────────────────────────────────────────────
 #  Step 2: Server password
 # ─────────────────────────────────────────────
-step "[2/7] Server password"
+step "[2/5] Server password"
 
 ask_secret PASSWORD "Password (press Enter to auto-generate)"
 
@@ -103,26 +103,13 @@ fi
 # ─────────────────────────────────────────────
 #  Step 3: Ports
 # ─────────────────────────────────────────────
-step "[3/7] Ports"
+step "[3/5] Ports"
 ask BACKEND_PORT "Backend port" "3001"
 
 # ─────────────────────────────────────────────
-#  Step 4: Frontend (optional)
+#  Step 4: Domain + SSL
 # ─────────────────────────────────────────────
-step "[4/7] Frontend (clawzettel UI)"
-
-INSTALL_FRONTEND=false
-FRONTEND_PORT="3000"
-
-if ask_yn "Install the frontend UI?" "y"; then
-  INSTALL_FRONTEND=true
-  ask FRONTEND_PORT "Frontend port" "3000"
-fi
-
-# ─────────────────────────────────────────────
-#  Step 5: Domain + SSL
-# ─────────────────────────────────────────────
-step "[5/7] Domain & SSL"
+step "[4/5] Domain & SSL"
 
 DOMAIN="" USE_SSL=false SSL_TYPE="letsencrypt"
 LE_EMAIL="" CERT_FILE="" KEY_FILE=""
@@ -154,9 +141,9 @@ if ask_yn "Do you have a domain pointing to this server?" "n"; then
 fi
 
 # ─────────────────────────────────────────────
-#  Step 6: GLM AI chat
+#  Step 5: GLM AI chat
 # ─────────────────────────────────────────────
-step "[6/7] GLM AI chat"
+step "[5/5] GLM AI chat"
 
 GLM_API_KEY=""
 GLM_BASE_URL="https://api.z.ai/api/coding/paas/v4"
@@ -173,77 +160,15 @@ if [[ -n "$GLM_API_KEY" ]]; then
 fi
 
 # ─────────────────────────────────────────────
-#  Step 7: opencode AI coding assistant (optional)
-# ─────────────────────────────────────────────
-step "[7/7] opencode AI coding assistant"
-
-INSTALL_OPENCODE=false
-OPENCODE_PROVIDER=""
-OPENCODE_API_KEY=""
-OPENCODE_MODEL=""
-
-echo "    opencode is a terminal-based AI coding assistant."
-echo ""
-
-if ask_yn "Install opencode?" "n"; then
-  INSTALL_OPENCODE=true
-
-  echo ""
-  echo "    Provider options:"
-  echo "    1) Anthropic (Claude) — console.anthropic.com"
-  echo "    2) z.ia               — z.ia / glm models"
-  echo "    3) OpenAI             — platform.openai.com"
-  echo "    4) Other (custom OpenAI-compatible endpoint)"
-  echo ""
-  ask OPENCODE_PROVIDER_CHOICE "Choice" "2"
-
-  case "$OPENCODE_PROVIDER_CHOICE" in
-    1)
-      OPENCODE_PROVIDER="anthropic"
-      ask_secret OPENCODE_API_KEY "Anthropic API key"
-      ask OPENCODE_MODEL "Model" "claude-sonnet-4-5"
-      ;;
-    2)
-      OPENCODE_PROVIDER="z.ai"
-      ask_secret OPENCODE_API_KEY "z.ia API key"
-      ask OPENCODE_MODEL "Model" "glm-5.1"
-      ;;
-    3)
-      OPENCODE_PROVIDER="openai"
-      ask_secret OPENCODE_API_KEY "OpenAI API key"
-      ask OPENCODE_MODEL "Model" "gpt-4o"
-      ;;
-    4)
-      OPENCODE_PROVIDER="custom"
-      ask OPENCODE_CUSTOM_BASE_URL "Base URL (e.g. https://api.example.com/v1)"
-      [[ -z "$OPENCODE_CUSTOM_BASE_URL" ]] && error "Base URL cannot be empty."
-      ask_secret OPENCODE_API_KEY "API key"
-      ask OPENCODE_MODEL "Model name"
-      [[ -z "$OPENCODE_MODEL" ]] && error "Model name cannot be empty."
-      ;;
-    *)
-      warn "Unknown choice, skipping opencode provider configuration."
-      ;;
-  esac
-fi
-
-# ─────────────────────────────────────────────
 #  Derived values
 # ─────────────────────────────────────────────
 JWT_SECRET="$(gen_secret)"
 SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || hostname)"
 
 if [[ "$USE_SSL" == "true" ]]; then
-  if [[ "$INSTALL_FRONTEND" == "true" ]]; then
-    BACKEND_PUBLIC_URL="https://${DOMAIN}/api"
-    FRONTEND_PUBLIC_URL="https://${DOMAIN}"
-  else
-    BACKEND_PUBLIC_URL="https://${DOMAIN}"
-    FRONTEND_PUBLIC_URL=""
-  fi
+  BACKEND_PUBLIC_URL="https://${DOMAIN}"
 else
   BACKEND_PUBLIC_URL="http://${SERVER_IP}:${BACKEND_PORT}"
-  FRONTEND_PUBLIC_URL="http://${SERVER_IP}:${FRONTEND_PORT}"
 fi
 
 # ─────────────────────────────────────────────
@@ -318,17 +243,6 @@ docker compose -f "$BACKEND_DIR/apps/backend/docker-compose.yml" \
   up -d --build
 
 # ─────────────────────────────────────────────
-#  Start frontend (optional)
-# ─────────────────────────────────────────────
-if [[ "$INSTALL_FRONTEND" == "true" ]]; then
-  info "Starting frontend…"
-  printf 'PORT=%s\n' "$FRONTEND_PORT" > "$BACKEND_DIR/apps/frontend/.env"
-  docker compose -f "$BACKEND_DIR/apps/frontend/docker-compose.yml" \
-    --env-file "$BACKEND_DIR/apps/frontend/.env" \
-    up -d --build
-fi
-
-# ─────────────────────────────────────────────
 #  SSL + nginx reverse proxy
 # ─────────────────────────────────────────────
 if [[ "$USE_SSL" == "true" ]]; then
@@ -378,28 +292,7 @@ server {
 
 NGINXEOF
 
-    if [[ "$INSTALL_FRONTEND" == "true" ]]; then
-      cat <<NGINXEOF
-    # Backend API (strips /api prefix before proxying)
-    location /api/ {
-        proxy_pass http://host.docker.internal:${BACKEND_PORT}/;
-        proxy_set_header Host              \$host;
-        proxy_set_header X-Real-IP         \$remote_addr;
-        proxy_set_header X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-
-    # Frontend
-    location / {
-        proxy_pass http://host.docker.internal:${FRONTEND_PORT}/;
-        proxy_set_header Host              \$host;
-        proxy_set_header X-Real-IP         \$remote_addr;
-        proxy_set_header X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-NGINXEOF
-    else
-      cat <<NGINXEOF
+    cat <<NGINXEOF
     location / {
         proxy_pass http://host.docker.internal:${BACKEND_PORT}/;
         proxy_set_header Host              \$host;
@@ -408,7 +301,6 @@ NGINXEOF
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 NGINXEOF
-    fi
 
     echo "}"
   } > "$NGINX_DIR/nginx.conf"
@@ -445,73 +337,6 @@ DCEOF
 fi
 
 # ─────────────────────────────────────────────
-#  opencode
-# ─────────────────────────────────────────────
-if [[ "$INSTALL_OPENCODE" == "true" ]]; then
-  info "Installing opencode…"
-  curl -fsSL https://opencode.ai/install | bash || error "opencode installation failed."
-
-  OPENCODE_CONFIG_DIR="${HOME}/.config/opencode"
-  mkdir -p "$OPENCODE_CONFIG_DIR"
-
-  case "$OPENCODE_PROVIDER" in
-    anthropic)
-      cat > "$OPENCODE_CONFIG_DIR/config.json" <<OCEOF
-{
-  "model": "${OPENCODE_MODEL}",
-  "provider": {
-    "anthropic": {
-      "apiKey": "${OPENCODE_API_KEY}"
-    }
-  }
-}
-OCEOF
-      ;;
-    z.ai)
-      cat > "$OPENCODE_CONFIG_DIR/config.json" <<OCEOF
-{
-  "model": "${OPENCODE_MODEL}",
-  "provider": {
-    "openai": {
-      "name": "z.ai",
-      "baseUrl": "https://api.z.ai/v1",
-      "apiKey": "${OPENCODE_API_KEY}"
-    }
-  }
-}
-OCEOF
-      ;;
-    openai)
-      cat > "$OPENCODE_CONFIG_DIR/config.json" <<OCEOF
-{
-  "model": "${OPENCODE_MODEL}",
-  "provider": {
-    "openai": {
-      "apiKey": "${OPENCODE_API_KEY}"
-    }
-  }
-}
-OCEOF
-      ;;
-    custom)
-      cat > "$OPENCODE_CONFIG_DIR/config.json" <<OCEOF
-{
-  "model": "${OPENCODE_MODEL}",
-  "provider": {
-    "openai": {
-      "baseUrl": "${OPENCODE_CUSTOM_BASE_URL}",
-      "apiKey": "${OPENCODE_API_KEY}"
-    }
-  }
-}
-OCEOF
-      ;;
-  esac
-
-  info "opencode configured at $OPENCODE_CONFIG_DIR/config.json"
-fi
-
-# ─────────────────────────────────────────────
 #  Summary
 # ─────────────────────────────────────────────
 echo ""
@@ -520,14 +345,8 @@ echo "  │          Installation complete!       │"
 echo "  └──────────────────────────────────────┘"
 echo ""
 
-if [[ "$USE_SSL" == "true" && "$INSTALL_FRONTEND" == "true" ]]; then
-  info "Frontend:  https://${DOMAIN}"
-  info "Backend:   https://${DOMAIN}/api"
-elif [[ "$USE_SSL" == "true" ]]; then
+if [[ "$USE_SSL" == "true" ]]; then
   info "Backend:   https://${DOMAIN}"
-elif [[ "$INSTALL_FRONTEND" == "true" ]]; then
-  info "Frontend:  http://${SERVER_IP}:${FRONTEND_PORT}"
-  info "Backend:   http://${SERVER_IP}:${BACKEND_PORT}"
 else
   info "Backend:   http://${SERVER_IP}:${BACKEND_PORT}"
 fi
@@ -544,8 +363,5 @@ if [[ -z "$GLM_API_KEY" ]]; then
   warn "AI chat:   mock mode (set GLM_API_KEY in .env to enable real AI)"
 else
   warn "AI chat:   GLM ${GLM_MODEL} via ${GLM_BASE_URL}"
-fi
-if [[ "$INSTALL_OPENCODE" == "true" ]]; then
-  warn "opencode:  ${HOME}/.config/opencode/config.json"
 fi
 echo ""
