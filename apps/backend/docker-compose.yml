@@ -11,8 +11,10 @@ services:
       GIT_REMOTE_URL: ${GIT_REMOTE_URL:-}
       GIT_USER_NAME: ${GIT_USER_NAME:-clawzettel}
       GIT_USER_EMAIL: ${GIT_USER_EMAIL:-clawzettel@claw-zettel}
-      CLAWZETTEL_BASE_URL: ${CLAWZETTEL_BASE_URL:-http://host.docker.internal:42617}
-      CLAWZETTEL_TOKEN: ${CLAWZETTEL_TOKEN:-}
+      GLM_API_KEY: ${GLM_API_KEY:-}
+      GLM_BASE_URL: ${GLM_BASE_URL:-https://api.z.ai/api/coding/paas/v4}
+      GLM_MODEL: ${GLM_MODEL:-glm-z1-flash}
+      CLAWZETTEL_MODE: ${CLAWZETTEL_MODE:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

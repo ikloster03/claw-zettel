@@ -101,6 +101,11 @@ export const useChatsStore = defineStore("chats", () => {
         const raw = line.slice(5).trim();
         try {
           const parsed = JSON.parse(raw);
+          if (parsed.error) {
+            placeholder.content = `Ошибка: ${parsed.error}`;
+            yield;
+            return;
+          }
           if (parsed.chunk) {
             placeholder.content += parsed.chunk;
             yield;
