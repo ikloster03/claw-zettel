@@ -197,6 +197,39 @@ async function* mockChat(messages: Message[]): AsyncGenerator<ChatChunk> {
   }
 }
 
+export async function generateChatTitle(userMessage: string): Promise<string> {
+  if (process.env.CLAWZETTEL_MODE === "mock") {
+    return userMessage.slice(0, 40);
+  }
+  const apiKey = process.env.GLM_API_KEY;
+  if (!apiKey) return userMessage.slice(0, 40);
+
+  const client = new OpenAI({
+    apiKey,
+    baseURL: process.env.GLM_BASE_URL ?? "https://api.z.ai/api/coding/paas/v4",
+  });
+  const model = process.env.GLM_TITLE_MODEL ?? process.env.GLM_MODEL ?? "glm-z1-flash";
+
+  try {
+    const res = await client.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: "user",
+          content: `Придумай короткое название (3-5 слов) для чата, где первое сообщение пользователя: "${userMessage.slice(0, 300)}". Ответь ТОЛЬКО названием — без кавычек, пояснений и рассуждений.`,
+        },
+      ],
+      stream: false,
+    });
+    let title = (res.choices[0]?.message?.content ?? "").trim();
+    // Strip any <think>...</think> reasoning blocks
+    title = title.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+    return title || userMessage.slice(0, 40);
+  } catch {
+    return userMessage.slice(0, 40);
+  }
+}
+
 export async function* clawzettelChat(messages: Message[]): AsyncGenerator<ChatChunk> {
   if (process.env.CLAWZETTEL_MODE === "mock") {
     yield* mockChat(messages);

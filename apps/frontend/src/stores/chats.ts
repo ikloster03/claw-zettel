@@ -114,6 +114,10 @@ export const useChatsStore = defineStore("chats", () => {
             placeholder.thinking = (placeholder.thinking ?? "") + parsed.thinking;
             yield;
           }
+          if (parsed.titleUpdate) {
+            const chat = chats.value.find((c) => c.id === chatId);
+            if (chat) chat.title = parsed.titleUpdate;
+          }
           if (parsed.done && parsed.id) {
             placeholder.id = parsed.id;
           }

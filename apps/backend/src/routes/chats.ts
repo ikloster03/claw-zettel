@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { db } from "../db";
 import { authMiddleware } from "../middleware/auth";
-import { clawzettelChat } from "../services/clawzettel";
+import { clawzettelChat, generateChatTitle } from "../services/clawzettel";
 
 export const chatsRouter = new Hono();
 chatsRouter.use("*", authMiddleware);
@@ -63,9 +63,12 @@ chatsRouter.post("/:id/messages", async (c) => {
     .query("SELECT role, content FROM messages WHERE chat_id = ? ORDER BY created_at ASC")
     .all(id) as { role: string; content: string }[];
 
+  const isFirstMessage = history.length === 1;
+
   return streamSSE(c, async (stream) => {
     let fullContent = "";
     let fullThinking = "";
+    let streamError = false;
     try {
       for await (const chunk of clawzettelChat(history)) {
         if (chunk.type === "text") {
@@ -77,6 +80,7 @@ chatsRouter.post("/:id/messages", async (c) => {
         }
       }
     } catch (err) {
+      streamError = true;
       await stream.writeSSE({ data: JSON.stringify({ error: String(err) }), event: "error" });
       return;
     }
@@ -87,6 +91,17 @@ chatsRouter.post("/:id/messages", async (c) => {
       [asstMsgId, id, fullContent, fullThinking, Date.now()]
     );
     db.run("UPDATE chats SET updated_at = ? WHERE id = ?", [Date.now(), id]);
+
+    if (isFirstMessage && !streamError) {
+      try {
+        const title = await generateChatTitle(content);
+        db.run("UPDATE chats SET title = ? WHERE id = ?", [title, id]);
+        await stream.writeSSE({ data: JSON.stringify({ titleUpdate: title }) });
+      } catch {
+        // title generation is best-effort
+      }
+    }
+
     await stream.writeSSE({ data: JSON.stringify({ done: true, id: asstMsgId }), event: "done" });
   });
 });

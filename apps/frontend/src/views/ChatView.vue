@@ -19,18 +19,41 @@
         <div v-if="store.chats.length === 0" class="px-4 py-8 text-center text-sm text-[var(--color-muted)]">
           No chats yet. Start one!
         </div>
-        <button
+        <div
           v-for="chat in store.chats"
           :key="chat.id"
           @click="openChat(chat.id)"
-          class="w-full text-left px-4 py-3 text-sm hover:bg-[var(--color-border)] transition-colors border-b border-[var(--color-border)] last:border-0"
+          @dblclick.stop="startRename(chat.id)"
+          class="group w-full text-left px-4 py-3 text-sm hover:bg-[var(--color-border)] transition-colors border-b border-[var(--color-border)] last:border-0 cursor-pointer"
           :class="chat.id === activeChatId ? 'bg-[var(--color-border)] font-medium' : 'text-[var(--color-muted)]'"
         >
-          <div class="truncate">{{ chat.title }}</div>
+          <template v-if="renamingChatId === chat.id">
+            <input
+              ref="listRenameInputEl"
+              v-model="renameInputValue"
+              @keydown.enter.prevent="commitRename"
+              @keydown.escape.prevent="cancelRename"
+              @blur="commitRename"
+              @click.stop
+              class="w-full text-sm font-medium bg-transparent border-b border-[var(--color-accent)] outline-none px-0.5"
+            />
+          </template>
+          <template v-else>
+            <div class="flex items-center gap-1">
+              <span class="truncate flex-1">{{ chat.title }}</span>
+              <button
+                @click.stop="startRename(chat.id)"
+                class="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-muted)] hover:text-[var(--color-text)] p-0.5 shrink-0"
+                title="Переименовать"
+              >
+                <Pencil class="size-3" />
+              </button>
+            </div>
+          </template>
           <div class="text-xs text-[var(--color-muted)] mt-0.5">
             {{ formatDate(chat.updated_at) }}
           </div>
-        </button>
+        </div>
       </div>
     </div>
 
@@ -48,12 +71,29 @@
           >
             <ChevronLeft class="size-5" />
           </button>
-          <h2 class="font-semibold text-sm truncate flex-1">
-            {{ activeChat?.title ?? "Chat" }}
-          </h2>
+          <template v-if="renamingChatId === activeChatId">
+            <input
+              ref="renameInputEl"
+              v-model="renameInputValue"
+              @keydown.enter.prevent="commitRename"
+              @keydown.escape.prevent="cancelRename"
+              @blur="commitRename"
+              class="flex-1 text-sm font-semibold bg-transparent border-b border-[var(--color-accent)] outline-none px-0.5"
+            />
+          </template>
+          <template v-else>
+            <h2 class="font-semibold text-sm truncate flex-1">{{ activeChat?.title ?? "Chat" }}</h2>
+            <button
+              @click="startRename(activeChatId!)"
+              class="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors p-1 shrink-0"
+              title="Переименовать"
+            >
+              <Pencil class="size-3.5" />
+            </button>
+          </template>
           <button
             @click="confirmDeleteChat"
-            class="text-[var(--color-muted)] hover:text-red-500 transition-colors p-1"
+            class="text-[var(--color-muted)] hover:text-red-500 transition-colors p-1 shrink-0"
           >
             <Trash2 class="size-4" />
           </button>
@@ -158,10 +198,19 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Plus, Send, Trash2, ChevronLeft, ChevronDown, MessageSquare, Brain } from "lucide-vue-next";
+import { Plus, Send, Trash2, ChevronLeft, ChevronDown, MessageSquare, Brain, Pencil } from "lucide-vue-next";
 import { marked } from "marked";
 import { useChatsStore } from "@/stores/chats";
 import type { Message } from "@/stores/chats";
+
+marked.use({
+  renderer: {
+    link({ href, title, text }) {
+      const titleAttr = title ? ` title="${title}"` : "";
+      return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
+    },
+  },
+});
 
 const store = useChatsStore();
 const route = useRoute();
@@ -173,6 +222,10 @@ const streaming = ref(false);
 const streamingMsgId = ref<string | null>(null);
 const messagesEl = ref<HTMLElement | null>(null);
 const thinkingEl = ref<HTMLElement | null>(null);
+const renamingChatId = ref<string | null>(null);
+const renameInputValue = ref("");
+const renameInputEl = ref<HTMLInputElement | null>(null);
+const listRenameInputEl = ref<HTMLInputElement | null>(null);
 
 const isMobile = computed(() => window.innerWidth < 768);
 const activeChat = computed(() => store.chats.find((c) => c.id === activeChatId.value));
@@ -226,6 +279,31 @@ async function newChat() {
 
 async function openChat(id: string) {
   activeChatId.value = id;
+}
+
+async function startRename(chatId: string) {
+  const chat = store.chats.find((c) => c.id === chatId);
+  if (!chat) return;
+  renamingChatId.value = chatId;
+  renameInputValue.value = chat.title;
+  await nextTick();
+  const el = renameInputEl.value ?? (Array.isArray(listRenameInputEl.value) ? listRenameInputEl.value[0] : listRenameInputEl.value);
+  el?.focus();
+  el?.select();
+}
+
+async function commitRename() {
+  const id = renamingChatId.value;
+  if (!id) return;
+  const title = renameInputValue.value.trim();
+  renamingChatId.value = null;
+  if (title && title !== store.chats.find((c) => c.id === id)?.title) {
+    await store.renameChat(id, title);
+  }
+}
+
+function cancelRename() {
+  renamingChatId.value = null;
 }
 
 async function confirmDeleteChat() {
