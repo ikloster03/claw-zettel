@@ -23,6 +23,11 @@ export const useChatsStore = defineStore("chats", () => {
   const chats = ref<Chat[]>([]);
   const messages = ref<Record<string, Message[]>>({});
   const loading = ref(false);
+  const currentAbortController = ref<AbortController | null>(null);
+
+  function abortStream() {
+    currentAbortController.value?.abort();
+  }
 
   async function fetchChats() {
     chats.value = await conn.api<Chat[]>("/chats");
@@ -74,62 +79,96 @@ export const useChatsStore = defineStore("chats", () => {
     };
     messages.value[chatId].push(placeholder);
 
-    const res = await fetch(`${conn.serverUrl}/chats/${chatId}/messages`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...conn.authHeaders(),
-      },
-      body: JSON.stringify({ content }),
-    });
+    const controller = new AbortController();
+    currentAbortController.value = controller;
 
-    if (!res.ok || !res.body) throw new Error("Stream failed");
+    try {
+      const res = await fetch(`${conn.serverUrl}/chats/${chatId}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...conn.authHeaders(),
+        },
+        body: JSON.stringify({ content }),
+        signal: controller.signal,
+      });
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
+      if (!res.ok || !res.body) throw new Error("Stream failed");
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      for (const line of lines) {
-        if (!line.startsWith("data:")) continue;
-        const raw = line.slice(5).trim();
-        try {
-          const parsed = JSON.parse(raw);
-          if (parsed.error) {
-            placeholder.content = `Ошибка: ${parsed.error}`;
-            yield;
-            return;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data:")) continue;
+            const raw = line.slice(5).trim();
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed.error) {
+                placeholder.content = `Ошибка: ${parsed.error}`;
+                yield;
+                return;
+              }
+              if (parsed.chunk) {
+                placeholder.content += parsed.chunk;
+                yield;
+              }
+              if (parsed.thinking) {
+                placeholder.thinking = (placeholder.thinking ?? "") + parsed.thinking;
+                yield;
+              }
+              if (parsed.titleUpdate) {
+                const chat = chats.value.find((c) => c.id === chatId);
+                if (chat) chat.title = parsed.titleUpdate;
+              }
+              if (parsed.done && parsed.id) {
+                placeholder.id = parsed.id;
+              }
+            } catch {
+              // skip malformed
+            }
           }
-          if (parsed.chunk) {
-            placeholder.content += parsed.chunk;
-            yield;
-          }
-          if (parsed.thinking) {
-            placeholder.thinking = (placeholder.thinking ?? "") + parsed.thinking;
-            yield;
-          }
-          if (parsed.titleUpdate) {
-            const chat = chats.value.find((c) => c.id === chatId);
-            if (chat) chat.title = parsed.titleUpdate;
-          }
-          if (parsed.done && parsed.id) {
-            placeholder.id = parsed.id;
-          }
-        } catch {
-          // skip malformed
         }
+      } catch (err) {
+        if ((err as Error).name === "AbortError") {
+          messages.value[chatId] = messages.value[chatId].filter(
+            (m) => m.id !== placeholder.id && m.id !== userMsg.id
+          );
+          return;
+        }
+        throw err;
       }
+    } finally {
+      currentAbortController.value = null;
     }
 
     const chat = chats.value.find((c) => c.id === chatId);
     if (chat) chat.updated_at = Date.now();
   }
 
-  return { chats, messages, loading, fetchChats, createChat, renameChat, deleteChat, fetchMessages, sendMessage };
+  async function deleteLastMessages(chatId: string): Promise<string | null> {
+    const data = await conn.api<{ ok: boolean; userContent: string | null }>(
+      `/chats/${chatId}/messages/last`,
+      { method: "DELETE" }
+    );
+    const msgs = messages.value[chatId];
+    if (msgs) {
+      if (msgs.length >= 2 && msgs[msgs.length - 1].role === "assistant" && msgs[msgs.length - 2].role === "user") {
+        msgs.splice(msgs.length - 2, 2);
+      } else if (msgs.length >= 1 && msgs[msgs.length - 1].role === "user") {
+        msgs.splice(msgs.length - 1, 1);
+      }
+    }
+    return data.userContent;
+  }
+
+  return { chats, messages, loading, currentAbortController, fetchChats, createChat, renameChat, deleteChat, fetchMessages, sendMessage, abortStream, deleteLastMessages };
 });

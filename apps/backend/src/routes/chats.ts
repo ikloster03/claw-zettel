@@ -47,9 +47,33 @@ chatsRouter.get("/:id/messages", (c) => {
   return c.json(messages);
 });
 
+chatsRouter.delete("/:id/messages/last", (c) => {
+  const { id } = c.req.param();
+  const lastTwo = db
+    .query("SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at DESC LIMIT 2")
+    .all(id) as { id: string; role: string; content: string }[];
+
+  if (lastTwo.length === 0) return c.json({ ok: true, userContent: null });
+
+  const [last, prev] = lastTwo;
+
+  if (last.role === "assistant" && prev?.role === "user") {
+    db.run("DELETE FROM messages WHERE id IN (?, ?)", [last.id, prev.id]);
+    return c.json({ ok: true, userContent: prev.content });
+  }
+
+  if (last.role === "user") {
+    db.run("DELETE FROM messages WHERE id = ?", [last.id]);
+    return c.json({ ok: true, userContent: last.content });
+  }
+
+  return c.json({ ok: true, userContent: null });
+});
+
 chatsRouter.post("/:id/messages", async (c) => {
   const { id } = c.req.param();
   const { content } = await c.req.json<{ content: string }>();
+  const reqSignal = c.req.raw.signal;
 
   const userMsgId = crypto.randomUUID();
   const now = Date.now();
@@ -69,19 +93,47 @@ chatsRouter.post("/:id/messages", async (c) => {
     let fullContent = "";
     let fullThinking = "";
     let streamError = false;
+
+    const abortAndCleanup = () => {
+      db.run("DELETE FROM messages WHERE id = ?", [userMsgId]);
+    };
+
     try {
       for await (const chunk of clawzettelChat(history)) {
+        if (reqSignal.aborted) {
+          abortAndCleanup();
+          return;
+        }
         if (chunk.type === "text") {
           fullContent += chunk.text;
-          await stream.writeSSE({ data: JSON.stringify({ chunk: chunk.text }) });
+          try {
+            await stream.writeSSE({ data: JSON.stringify({ chunk: chunk.text }) });
+          } catch {
+            abortAndCleanup();
+            return;
+          }
         } else if (chunk.type === "thinking") {
           fullThinking += chunk.text;
-          await stream.writeSSE({ data: JSON.stringify({ thinking: chunk.text }) });
+          try {
+            await stream.writeSSE({ data: JSON.stringify({ thinking: chunk.text }) });
+          } catch {
+            abortAndCleanup();
+            return;
+          }
         }
       }
     } catch (err) {
       streamError = true;
-      await stream.writeSSE({ data: JSON.stringify({ error: String(err) }), event: "error" });
+      try {
+        await stream.writeSSE({ data: JSON.stringify({ error: String(err) }), event: "error" });
+      } catch {
+        // ignore write error if client already disconnected
+      }
+      return;
+    }
+
+    if (reqSignal.aborted) {
+      abortAndCleanup();
       return;
     }
 

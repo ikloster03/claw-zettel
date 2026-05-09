@@ -92,6 +92,14 @@
             </button>
           </template>
           <button
+            @click="showThinking = !showThinking"
+            class="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors p-1 shrink-0"
+            :class="showThinking ? 'text-[var(--color-accent)]' : ''"
+            :title="showThinking ? 'Скрыть рассуждения' : 'Показать рассуждения'"
+          >
+            <Brain class="size-4" />
+          </button>
+          <button
             @click="confirmDeleteChat"
             class="text-[var(--color-muted)] hover:text-red-500 transition-colors p-1 shrink-0"
           >
@@ -106,7 +114,7 @@
           </div>
 
           <div
-            v-for="msg in messages"
+            v-for="(msg, idx) in messages"
             :key="msg.id"
             class="flex flex-col"
             :class="msg.role === 'user' ? 'items-end' : 'items-start'"
@@ -127,7 +135,7 @@
 
               <!-- Thinking block -->
               <details
-                v-if="msg.thinking"
+                v-if="msg.thinking && showThinking"
                 :open="isStreamingMsg(msg)"
                 class="mb-1.5 max-w-[80%] w-fit"
               >
@@ -148,17 +156,30 @@
             <!-- Message bubble -->
             <div
               v-if="msg.content || msg.role === 'user'"
-              class="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm"
-              :class="msg.role === 'user'
-                ? 'bg-[var(--color-accent)] text-white rounded-br-sm'
-                : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] rounded-bl-sm'"
+              class="group flex items-center gap-1.5"
             >
+              <!-- Rollback button (left of bubble, user only) -->
+              <button
+                v-if="msg.role === 'user' && idx === lastUserMsgIdx && !streaming"
+                @click="rollbackLastMessage"
+                class="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-border)] shrink-0"
+                title="Отредактировать"
+              >
+                <RotateCcw class="size-3.5" />
+              </button>
               <div
-                v-if="msg.role === 'assistant'"
-                class="prose prose-sm max-w-none dark:prose-invert"
-                v-html="renderMd(msg.content)"
-              />
-              <span v-else class="whitespace-pre-wrap">{{ msg.content }}</span>
+                class="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm"
+                :class="msg.role === 'user'
+                  ? 'bg-[var(--color-accent)] text-white rounded-br-sm'
+                  : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] rounded-bl-sm'"
+              >
+                <div
+                  v-if="msg.role === 'assistant'"
+                  class="prose prose-sm max-w-none dark:prose-invert"
+                  v-html="renderMd(msg.content)"
+                />
+                <span v-else class="whitespace-pre-wrap">{{ msg.content }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -248,8 +269,18 @@
               :disabled="streaming"
             />
             <button
+              v-if="streaming"
+              type="button"
+              @click="stopStreaming"
+              class="rounded-xl bg-red-500 hover:bg-red-600 text-white px-4 py-2 text-sm font-medium transition-colors"
+              title="Прервать"
+            >
+              <Square class="size-4" />
+            </button>
+            <button
+              v-else
               type="submit"
-              :disabled="!input.trim() || streaming"
+              :disabled="!input.trim()"
               class="rounded-xl bg-[var(--color-accent)] text-white px-4 py-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[var(--color-accent-hover)] transition-colors"
             >
               <Send class="size-4" />
@@ -271,7 +302,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Plus, Send, Trash2, ChevronLeft, ChevronDown, MessageSquare, Brain, Pencil, FileText } from "lucide-vue-next";
+import { Plus, Send, Square, RotateCcw, Trash2, ChevronLeft, ChevronDown, MessageSquare, Brain, Pencil, FileText } from "lucide-vue-next";
 import { marked } from "marked";
 import { useChatsStore } from "@/stores/chats";
 import { useNotesStore } from "@/stores/notes";
@@ -295,6 +326,7 @@ const activeChatId = ref<string | null>((route.params.id as string) ?? null);
 const input = ref("");
 const streaming = ref(false);
 const streamingMsgId = ref<string | null>(null);
+const lastSentText = ref<string | null>(null);
 const messagesEl = ref<HTMLElement | null>(null);
 const thinkingEl = ref<HTMLElement | null>(null);
 const textareaEl = ref<HTMLTextAreaElement | null>(null);
@@ -302,6 +334,10 @@ const renamingChatId = ref<string | null>(null);
 const renameInputValue = ref("");
 const renameInputEl = ref<HTMLInputElement | null>(null);
 const listRenameInputEl = ref<HTMLInputElement | null>(null);
+
+// Thinking visibility (persisted)
+const showThinking = ref(localStorage.getItem("showThinking") !== "false");
+watch(showThinking, (v) => localStorage.setItem("showThinking", String(v)));
 
 // Slash command state
 const slashMenuOpen = ref(false);
@@ -321,11 +357,18 @@ const COMMANDS = [
 const isMobile = computed(() => window.innerWidth < 768);
 const activeChat = computed(() => store.chats.find((c) => c.id === activeChatId.value));
 const messages = computed(() => (activeChatId.value ? store.messages[activeChatId.value] ?? [] : []));
+const lastUserMsgIdx = computed(() => {
+  const msgs = messages.value;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].role === "user") return i;
+  }
+  return -1;
+});
 
 const filteredCommands = computed(() => {
-  const m = input.value.match(/^\/(\w*)$/);
+  const m = input.value.match(/(^|\s)\/(\w*)$/);
   if (!m) return [];
-  const f = m[1].toLowerCase();
+  const f = m[2].toLowerCase();
   return COMMANDS.filter((c) => c.name.startsWith(f));
 });
 
@@ -337,18 +380,18 @@ const filteredNotes = computed(() => {
 });
 
 watch(input, () => {
-  const isSlashTyping = /^\/\w*$/.test(input.value);
+  const isSlashTyping = /(^|\s)\/\w*$/.test(input.value);
   slashMenuOpen.value = isSlashTyping && filteredCommands.value.length > 0;
   if (!slashMenuOpen.value) slashMenuIndex.value = 0;
 
-  const hasCommand = /^\/(upd|del|new|find|web)\s/.test(input.value);
+  const hasCommand = /(^|\s)\/(upd|del|new|find|web)\s/.test(input.value);
   const hasAt = /@[\w\-./ ]*$/.test(input.value) && input.value.includes("@");
   atMenuOpen.value = hasCommand && hasAt && filteredNotes.value.length > 0;
   if (!atMenuOpen.value) atMenuIndex.value = 0;
 });
 
 function selectCommand(cmd: (typeof COMMANDS)[number]) {
-  input.value = `/${cmd.name} `;
+  input.value = input.value.replace(/(^|\s)\/\w*$/, (m, prefix) => prefix + `/${cmd.name} `);
   slashMenuOpen.value = false;
   nextTick(() => textareaEl.value?.focus());
 }
@@ -517,6 +560,16 @@ async function confirmDeleteNote() {
   }
 }
 
+async function rollbackLastMessage() {
+  if (!activeChatId.value || streaming.value) return;
+  const userContent = await store.deleteLastMessages(activeChatId.value);
+  if (userContent) {
+    input.value = userContent;
+    await nextTick();
+    textareaEl.value?.focus();
+  }
+}
+
 async function sendMessage() {
   const text = input.value.trim();
   if (!text || !activeChatId.value || streaming.value) return;
@@ -525,12 +578,13 @@ async function sendMessage() {
   atMenuOpen.value = false;
 
   // Handle /del separately: show confirmation bar, don't send to AI
-  const delMatch = text.match(/^\/del\s+@([\w\-./]+\.md)\s*$/i);
+  const delMatch = text.match(/\/del\s+@([\w\-./]+\.md)/i);
   if (delMatch) {
     pendingDeleteNote.value = delMatch[1];
     return;
   }
 
+  lastSentText.value = text;
   input.value = "";
   streaming.value = true;
   try {
@@ -546,7 +600,17 @@ async function sendMessage() {
   } finally {
     streaming.value = false;
     streamingMsgId.value = null;
+    lastSentText.value = null;
     scrollToBottom();
+  }
+}
+
+function stopStreaming() {
+  const text = lastSentText.value;
+  store.abortStream();
+  if (text) {
+    input.value = text;
+    nextTick(() => textareaEl.value?.focus());
   }
 }
 </script>
