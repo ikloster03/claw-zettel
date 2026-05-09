@@ -158,19 +158,92 @@
                 class="prose prose-sm max-w-none dark:prose-invert"
                 v-html="renderMd(msg.content)"
               />
-              <span v-else>{{ msg.content }}</span>
+              <span v-else class="whitespace-pre-wrap">{{ msg.content }}</span>
             </div>
           </div>
         </div>
 
         <!-- Input -->
-        <div class="px-4 py-3 border-t border-[var(--color-border)]">
+        <div class="relative px-4 py-3 border-t border-[var(--color-border)]">
+          <!-- Slash command menu -->
+          <Transition name="menu">
+            <div
+              v-if="slashMenuOpen && filteredCommands.length"
+              class="absolute bottom-full left-4 right-4 mb-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-hidden shadow-lg z-20"
+            >
+              <div class="px-3 pt-2 pb-1 text-[10px] font-medium text-[var(--color-muted)] uppercase tracking-wide">
+                Команды
+              </div>
+              <div
+                v-for="(cmd, i) in filteredCommands"
+                :key="cmd.name"
+                @mousedown.prevent="selectCommand(cmd)"
+                class="flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors"
+                :class="i === slashMenuIndex
+                  ? 'bg-[var(--color-accent)] text-white'
+                  : 'hover:bg-[var(--color-border)]'"
+              >
+                <span class="font-mono font-semibold text-sm w-12 shrink-0"
+                  :class="i === slashMenuIndex ? 'text-white' : 'text-[var(--color-accent)]'"
+                >{{ cmd.label }}</span>
+                <span class="text-sm" :class="i === slashMenuIndex ? 'text-white/90' : 'text-[var(--color-text)]'">{{ cmd.desc }}</span>
+                <span class="ml-auto text-xs opacity-50 truncate hidden sm:block">{{ cmd.example }}</span>
+              </div>
+            </div>
+          </Transition>
+
+          <!-- @ autocomplete menu -->
+          <Transition name="menu">
+            <div
+              v-if="atMenuOpen && filteredNotes.length"
+              class="absolute bottom-full left-4 right-4 mb-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-hidden shadow-lg z-20 max-h-52 overflow-y-auto"
+            >
+              <div class="px-3 pt-2 pb-1 text-[10px] font-medium text-[var(--color-muted)] uppercase tracking-wide">
+                Заметки
+              </div>
+              <div
+                v-for="(note, i) in filteredNotes"
+                :key="note"
+                @mousedown.prevent="selectNote(note)"
+                class="flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors"
+                :class="i === atMenuIndex
+                  ? 'bg-[var(--color-accent)] text-white'
+                  : 'hover:bg-[var(--color-border)]'"
+              >
+                <FileText class="size-3.5 shrink-0 opacity-60" />
+                <span class="font-mono text-xs truncate">{{ note }}</span>
+              </div>
+            </div>
+          </Transition>
+
+          <!-- Delete note confirmation bar -->
+          <Transition name="menu">
+            <div
+              v-if="pendingDeleteNote"
+              class="absolute bottom-full left-4 right-4 mb-1.5 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 z-20 flex items-center gap-3"
+            >
+              <Trash2 class="size-4 text-red-500 shrink-0" />
+              <span class="text-sm flex-1 text-red-700 dark:text-red-300">
+                Удалить заметку <span class="font-mono font-medium">{{ pendingDeleteNote }}</span>?
+              </span>
+              <button
+                @click="cancelDelete"
+                class="text-sm text-[var(--color-muted)] hover:text-[var(--color-text)] px-2 py-1 rounded-lg hover:bg-[var(--color-border)] transition-colors"
+              >Отмена</button>
+              <button
+                @click="confirmDeleteNote"
+                class="text-sm bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg transition-colors font-medium"
+              >Удалить</button>
+            </div>
+          </Transition>
+
           <form @submit.prevent="sendMessage" class="flex gap-2">
             <textarea
+              ref="textareaEl"
               v-model="input"
-              @keydown.enter.exact.prevent="sendMessage"
+              @keydown="handleKeydown"
               rows="1"
-              placeholder="Type a message…"
+              placeholder="Сообщение… или /new /find /upd /del /web"
               class="flex-1 resize-none rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] max-h-32 overflow-y-auto"
               :disabled="streaming"
             />
@@ -198,9 +271,10 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Plus, Send, Trash2, ChevronLeft, ChevronDown, MessageSquare, Brain, Pencil } from "lucide-vue-next";
+import { Plus, Send, Trash2, ChevronLeft, ChevronDown, MessageSquare, Brain, Pencil, FileText } from "lucide-vue-next";
 import { marked } from "marked";
 import { useChatsStore } from "@/stores/chats";
+import { useNotesStore } from "@/stores/notes";
 import type { Message } from "@/stores/chats";
 
 marked.use({
@@ -213,6 +287,7 @@ marked.use({
 });
 
 const store = useChatsStore();
+const notesStore = useNotesStore();
 const route = useRoute();
 const router = useRouter();
 
@@ -222,14 +297,123 @@ const streaming = ref(false);
 const streamingMsgId = ref<string | null>(null);
 const messagesEl = ref<HTMLElement | null>(null);
 const thinkingEl = ref<HTMLElement | null>(null);
+const textareaEl = ref<HTMLTextAreaElement | null>(null);
 const renamingChatId = ref<string | null>(null);
 const renameInputValue = ref("");
 const renameInputEl = ref<HTMLInputElement | null>(null);
 const listRenameInputEl = ref<HTMLInputElement | null>(null);
 
+// Slash command state
+const slashMenuOpen = ref(false);
+const slashMenuIndex = ref(0);
+const atMenuOpen = ref(false);
+const atMenuIndex = ref(0);
+const pendingDeleteNote = ref<string | null>(null);
+
+const COMMANDS = [
+  { name: "new", label: "/new", desc: "Создать новую заметку", example: "/new основные черты цетелькастена" },
+  { name: "find", label: "/find", desc: "Найти в заметках", example: "/find атомарность" },
+  { name: "upd", label: "/upd", desc: "Обновить заметку", example: "/upd @zettel.md добавь ссылки" },
+  { name: "del", label: "/del", desc: "Удалить заметку", example: "/del @zettel.md" },
+  { name: "web", label: "/web", desc: "Найти в интернете", example: "/web второй мозг и цеттелькастен" },
+] as const;
+
 const isMobile = computed(() => window.innerWidth < 768);
 const activeChat = computed(() => store.chats.find((c) => c.id === activeChatId.value));
 const messages = computed(() => (activeChatId.value ? store.messages[activeChatId.value] ?? [] : []));
+
+const filteredCommands = computed(() => {
+  const m = input.value.match(/^\/(\w*)$/);
+  if (!m) return [];
+  const f = m[1].toLowerCase();
+  return COMMANDS.filter((c) => c.name.startsWith(f));
+});
+
+const filteredNotes = computed(() => {
+  const m = input.value.match(/@([\w\-./ ]*)$/);
+  if (!m) return [];
+  const f = m[1].toLowerCase().trim();
+  return notesStore.files.filter((p) => p.toLowerCase().includes(f)).slice(0, 8);
+});
+
+watch(input, () => {
+  const isSlashTyping = /^\/\w*$/.test(input.value);
+  slashMenuOpen.value = isSlashTyping && filteredCommands.value.length > 0;
+  if (!slashMenuOpen.value) slashMenuIndex.value = 0;
+
+  const hasCommand = /^\/(upd|del|new|find|web)\s/.test(input.value);
+  const hasAt = /@[\w\-./ ]*$/.test(input.value) && input.value.includes("@");
+  atMenuOpen.value = hasCommand && hasAt && filteredNotes.value.length > 0;
+  if (!atMenuOpen.value) atMenuIndex.value = 0;
+});
+
+function selectCommand(cmd: (typeof COMMANDS)[number]) {
+  input.value = `/${cmd.name} `;
+  slashMenuOpen.value = false;
+  nextTick(() => textareaEl.value?.focus());
+}
+
+function selectNote(path: string) {
+  input.value = input.value.replace(/@[\w\-./ ]*$/, `@${path} `);
+  atMenuOpen.value = false;
+  nextTick(() => textareaEl.value?.focus());
+}
+
+function handleKeydown(e: KeyboardEvent) {
+  if (slashMenuOpen.value && filteredCommands.value.length > 0) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      slashMenuIndex.value = (slashMenuIndex.value + 1) % filteredCommands.value.length;
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      slashMenuIndex.value = (slashMenuIndex.value - 1 + filteredCommands.value.length) % filteredCommands.value.length;
+      return;
+    }
+    if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+      e.preventDefault();
+      selectCommand(filteredCommands.value[slashMenuIndex.value]);
+      return;
+    }
+    if (e.key === "Escape") {
+      slashMenuOpen.value = false;
+      return;
+    }
+  }
+
+  if (atMenuOpen.value && filteredNotes.value.length > 0) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      atMenuIndex.value = (atMenuIndex.value + 1) % filteredNotes.value.length;
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      atMenuIndex.value = (atMenuIndex.value - 1 + filteredNotes.value.length) % filteredNotes.value.length;
+      return;
+    }
+    if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+      e.preventDefault();
+      selectNote(filteredNotes.value[atMenuIndex.value]);
+      return;
+    }
+    if (e.key === "Escape") {
+      atMenuOpen.value = false;
+      return;
+    }
+  }
+
+  if (e.key === "Escape" && pendingDeleteNote.value) {
+    cancelDelete();
+    return;
+  }
+
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
 
 function isStreamingMsg(msg: Message) {
   return streaming.value && msg.id === streamingMsgId.value;
@@ -258,6 +442,8 @@ async function scrollThinkingToBottom() {
 
 onMounted(async () => {
   await store.fetchChats();
+  // Prefetch notes list for @ autocomplete
+  notesStore.fetchFiles().catch(() => {});
   if (activeChatId.value) {
     await store.fetchMessages(activeChatId.value);
     scrollToBottom();
@@ -313,9 +499,38 @@ async function confirmDeleteChat() {
   activeChatId.value = store.chats[0]?.id ?? null;
 }
 
+function cancelDelete() {
+  pendingDeleteNote.value = null;
+  input.value = "";
+  nextTick(() => textareaEl.value?.focus());
+}
+
+async function confirmDeleteNote() {
+  const path = pendingDeleteNote.value;
+  if (!path) return;
+  pendingDeleteNote.value = null;
+  input.value = "";
+  try {
+    await notesStore.deleteNote(path);
+  } catch {
+    // silent — notes store handles errors
+  }
+}
+
 async function sendMessage() {
   const text = input.value.trim();
   if (!text || !activeChatId.value || streaming.value) return;
+
+  slashMenuOpen.value = false;
+  atMenuOpen.value = false;
+
+  // Handle /del separately: show confirmation bar, don't send to AI
+  const delMatch = text.match(/^\/del\s+@([\w\-./]+\.md)\s*$/i);
+  if (delMatch) {
+    pendingDeleteNote.value = delMatch[1];
+    return;
+  }
+
   input.value = "";
   streaming.value = true;
   try {
@@ -342,5 +557,15 @@ details[open] .details-arrow {
 }
 .details-arrow {
   transition: transform 0.15s;
+}
+
+.menu-enter-active,
+.menu-leave-active {
+  transition: opacity 0.1s ease, transform 0.1s ease;
+}
+.menu-enter-from,
+.menu-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 </style>

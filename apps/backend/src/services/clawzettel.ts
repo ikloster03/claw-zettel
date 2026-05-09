@@ -22,16 +22,20 @@ function buildSystemPrompt(): string {
   const date = new Date().toISOString().split("T")[0];
   return `Ты — AI-ассистент, встроенный в персональную систему управления знаниями (Zettelkasten).
 
-У тебя есть инструменты для работы с заметками пользователя. Используй их по необходимости:
-- Найти информацию → search_notes или read_note
-- Показать всё → list_notes
-- Создать заметку → create_note
-- Обновить заметку → update_note
+Стратегия работы с запросами:
+1. На ЛЮБОЙ информационный вопрос — сначала выполни search_notes, чтобы найти релевантные заметки, и только потом отвечай
+2. Если в заметках ничего нет — ответь на основе своих знаний, но предложи создать заметку
+3. Если пользователь явно просит поискать в интернете или использует /web — вызови web_search
+
+Slash-команды пользователя (выполняй немедленно):
+- /new <тема> → придумай имя файла (английский kebab-case, .md) и создай заметку через create_note
+- /find <запрос> → найди через search_notes, покажи результаты
+- /upd @<файл> <инструкция> → прочитай заметку через read_note, примень правки, сохрани через update_note
+- /web <запрос> → найди через web_search, процитируй источники
 
 Правила работы с заметками:
 - Имя файла: на английском через дефис, например "zettelkasten-method.md" или "programming/rust-types.md"
 - Формат: Markdown, первая строка — заголовок # Название
-- Перед ответом "не нашёл" — выполни поиск
 - После создания/изменения заметки подтверди действие
 
 Текущая дата: ${date}`;
@@ -104,6 +108,20 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description: "Найти информацию в интернете. Используй когда пользователь явно просит поискать в вебе или использует /web команду",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          query: { type: "string", description: "Поисковый запрос" },
+        },
+        required: ["query"],
+      },
+    },
+  },
 ];
 
 async function listAllNotes(): Promise<string[]> {
@@ -162,6 +180,35 @@ async function executeTool(name: string, input: Record<string, string>): Promise
         }
       }
       return results.length ? results.join("\n\n") : "Ничего не найдено";
+    }
+    case "web_search": {
+      const apiKey = process.env.GLM_API_KEY;
+      if (!apiKey) return "Ошибка: GLM_API_KEY не задан";
+      try {
+        const res = await fetch("https://api.z.ai/api/paas/v4/web_search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            search_engine: "search-prime",
+            search_query: input.query,
+            count: 5,
+          }),
+        });
+        if (!res.ok) return `Ошибка веб-поиска: ${res.status}`;
+        const data = (await res.json()) as {
+          search_result?: Array<{ title: string; content: string; url: string }>;
+        };
+        const results = data.search_result ?? [];
+        if (!results.length) return "Ничего не найдено в интернете";
+        return results
+          .map((r, i) => `[${i + 1}] ${r.title}\n${r.content}\nИсточник: ${r.url}`)
+          .join("\n\n");
+      } catch (e) {
+        return `Ошибка веб-поиска: ${e}`;
+      }
     }
     default:
       return `Неизвестный инструмент: ${name}`;
