@@ -13,6 +13,18 @@ export const useConnectionStore = defineStore("connection", () => {
 
   async function connect(url: string, password: string): Promise<boolean> {
     error.value = null;
+    if (window.location.protocol === "https:" && url.startsWith("http:")) {
+      try {
+        const hostname = new URL(url).hostname;
+        const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname === "localhost";
+        if (!isIp) {
+          error.value = "Mixed content blocked: this page is served over HTTPS but the server URL uses HTTP. Either use HTTPS for your server or open the frontend over HTTP.";
+          return false;
+        }
+      } catch {
+        // invalid URL — let fetch fail naturally
+      }
+    }
     loading.value = true;
     try {
       const res = await fetch(`${url}/auth/login`, {
