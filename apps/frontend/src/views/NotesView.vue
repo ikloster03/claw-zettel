@@ -165,7 +165,7 @@
 import { ref, watch, computed, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Plus, Search, Pencil, Trash2, ChevronLeft, FileText } from "lucide-vue-next";
-import { marked } from "marked";
+import { marked, type Tokens } from "marked";
 import { useNotesStore } from "@/stores/notes";
 
 marked.use({
@@ -178,8 +178,9 @@ marked.use({
         const match = src.match(/^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/);
         if (match) return { type: "wikilink", raw: match[0], path: match[1].trim(), label: (match[2] ?? match[1]).trim() };
       },
-      renderer(token: { path: string; label: string }) {
-        return `<a href="${token.path}" data-internal="true">${token.label}</a>`;
+      renderer(token: Tokens.Generic) {
+        const { path, label } = token as Tokens.Generic & { path: string; label: string };
+        return `<a href="${path}" data-internal="true">${label}</a>`;
       },
     },
   ],
