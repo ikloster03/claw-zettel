@@ -384,9 +384,8 @@ watch(input, () => {
   slashMenuOpen.value = isSlashTyping && filteredCommands.value.length > 0;
   if (!slashMenuOpen.value) slashMenuIndex.value = 0;
 
-  const hasCommand = /(^|\s)\/(upd|del|new|find|web)\s/.test(input.value);
-  const hasAt = /@[\w\-./ ]*$/.test(input.value) && input.value.includes("@");
-  atMenuOpen.value = hasCommand && hasAt && filteredNotes.value.length > 0;
+  const hasAt = /@[\w\-./ ]*$/.test(input.value);
+  atMenuOpen.value = hasAt && filteredNotes.value.length > 0;
   if (!atMenuOpen.value) atMenuIndex.value = 0;
 });
 

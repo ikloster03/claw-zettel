@@ -26,13 +26,8 @@ export const router = createRouter({
           component: () => import("@/views/ChatView.vue"),
         },
         {
-          path: "notes",
+          path: "notes/:pathMatch(.*)*",
           name: "notes",
-          component: () => import("@/views/NotesView.vue"),
-        },
-        {
-          path: "notes/*",
-          name: "note-detail",
           component: () => import("@/views/NotesView.vue"),
         },
         {

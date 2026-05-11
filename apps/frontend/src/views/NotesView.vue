@@ -73,7 +73,7 @@
         <div class="flex items-center gap-2 px-4 py-3 border-b border-[var(--color-border)]">
           <button
             v-if="isMobile"
-            @click="store.currentPath = null"
+            @click="goBack"
             class="text-[var(--color-muted)] hover:text-[var(--color-text)]"
           >
             <ChevronLeft class="size-5" />
@@ -101,6 +101,7 @@
           <div
             class="prose prose-sm max-w-none dark:prose-invert"
             v-html="renderMd(store.currentContent)"
+            @click="handleContentClick"
           />
         </div>
 
@@ -162,19 +163,44 @@
 
 <script setup lang="ts">
 import { ref, watch, computed, nextTick, onMounted } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { Plus, Search, Pencil, Trash2, ChevronLeft, FileText } from "lucide-vue-next";
 import { marked } from "marked";
 import { useNotesStore } from "@/stores/notes";
 
 marked.use({
+  extensions: [
+    {
+      name: "wikilink",
+      level: "inline" as const,
+      start(src: string) { return src.indexOf("[["); },
+      tokenizer(src: string) {
+        const match = src.match(/^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/);
+        if (match) return { type: "wikilink", raw: match[0], path: match[1].trim(), label: (match[2] ?? match[1]).trim() };
+      },
+      renderer(token: { path: string; label: string }) {
+        return `<a href="${token.path}" data-internal="true">${token.label}</a>`;
+      },
+    },
+  ],
   renderer: {
     html({ text }: { text: string }) {
       return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    }
-  }
+    },
+    link({ href, title, text }: { href: string; title?: string | null; text: string }) {
+      const isExternal = /^https?:\/\//.test(href) || href.startsWith("//");
+      if (isExternal) {
+        const t = title ? ` title="${title}"` : "";
+        return `<a href="${href}"${t} target="_blank" rel="noopener noreferrer">${text}</a>`;
+      }
+      return `<a href="${href}" data-internal="true">${text}</a>`;
+    },
+  },
 });
 
 const store = useNotesStore();
+const route = useRoute();
+const router = useRouter();
 const isMobile = computed(() => window.innerWidth < 768);
 const isEditing = ref(false);
 const editContent = ref("");
@@ -185,7 +211,12 @@ const newNoteContent = ref("");
 const newNoteInput = ref<HTMLInputElement | null>(null);
 let searchTimer: ReturnType<typeof setTimeout>;
 
-onMounted(() => store.fetchFiles());
+onMounted(async () => {
+  await store.fetchFiles();
+  const pathMatch = route.params.pathMatch;
+  const notePath = Array.isArray(pathMatch) ? pathMatch.join("/") : (pathMatch as string) ?? "";
+  if (notePath) await store.openNote(notePath);
+});
 
 watch(() => store.currentPath, (path) => {
   if (path) {
@@ -202,9 +233,24 @@ function renderMd(content: string): string {
   return marked.parse(content) as string;
 }
 
+function handleContentClick(e: MouseEvent) {
+  const anchor = (e.target as HTMLElement).closest("a");
+  if (!anchor) return;
+  if (anchor.dataset.internal !== "true") return;
+  e.preventDefault();
+  const href = anchor.getAttribute("href");
+  if (href) openNote(href.endsWith(".md") ? href : `${href}.md`);
+}
+
 async function openNote(path: string) {
   await store.openNote(path);
   creatingNew.value = false;
+  router.replace(`/notes/${path}`);
+}
+
+function goBack() {
+  store.currentPath = null;
+  router.replace("/notes");
 }
 
 function handleSearch() {

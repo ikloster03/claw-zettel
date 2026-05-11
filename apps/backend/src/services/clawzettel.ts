@@ -27,6 +27,8 @@ function buildSystemPrompt(): string {
 2. Если в заметках ничего нет — ответь на основе своих знаний, но предложи создать заметку
 3. Если пользователь явно просит поискать в интернете или использует /web — вызови web_search
 
+Если в сообщении есть @<файл> — немедленно прочитай эту заметку через read_note и используй её содержимое как контекст для ответа.
+
 Slash-команды пользователя (выполняй немедленно):
 - /new <тема> → придумай имя файла (английский kebab-case, .md) и создай заметку через create_note
 - /find <запрос> → найди через search_notes, покажи результаты
@@ -182,30 +184,44 @@ async function executeTool(name: string, input: Record<string, string>): Promise
       return results.length ? results.join("\n\n") : "Ничего не найдено";
     }
     case "web_search": {
-      const apiKey = process.env.GLM_API_KEY;
-      if (!apiKey) return "Ошибка: GLM_API_KEY не задан";
+      const mcpKey = process.env.ZAI_MCP_KEY ?? process.env.GLM_API_KEY;
+      if (!mcpKey) return "Ошибка: ZAI_MCP_KEY не задан";
       try {
-        const res = await fetch("https://api.z.ai/api/paas/v4/web_search", {
+        const res = await fetch("https://api.z.ai/api/mcp/web_search_prime/mcp", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
+            Accept: "application/json, text/event-stream",
+            Authorization: `Bearer ${mcpKey}`,
           },
           body: JSON.stringify({
-            search_engine: "search-prime",
-            search_query: input.query,
-            count: 5,
+            jsonrpc: "2.0",
+            method: "tools/call",
+            id: 1,
+            params: {
+              name: "web_search_prime",
+              arguments: {
+                search_query: input.query,
+                location: "ru",
+                content_size: "medium",
+              },
+            },
           }),
         });
         if (!res.ok) return `Ошибка веб-поиска: ${res.status}`;
-        const data = (await res.json()) as {
-          search_result?: Array<{ title: string; content: string; url: string }>;
+        const text = await res.text();
+        // Parse SSE: find last data: line
+        const dataLine = text.split("\n").filter((l) => l.startsWith("data:")).pop();
+        if (!dataLine) return "Ошибка веб-поиска: пустой ответ";
+        const envelope = JSON.parse(dataLine.slice(5)) as {
+          result?: { content?: Array<{ type: string; text: string }>; isError?: boolean };
+          error?: { message: string };
         };
-        const results = data.search_result ?? [];
-        if (!results.length) return "Ничего не найдено в интернете";
-        return results
-          .map((r, i) => `[${i + 1}] ${r.title}\n${r.content}\nИсточник: ${r.url}`)
-          .join("\n\n");
+        if (envelope.error) return `Ошибка веб-поиска: ${envelope.error.message}`;
+        const content = envelope.result?.content ?? [];
+        if (envelope.result?.isError) return `Ошибка веб-поиска: ${content[0]?.text ?? "неизвестная ошибка"}`;
+        const resultText = content.map((c) => c.text).join("\n");
+        return resultText || "Ничего не найдено в интернете";
       } catch (e) {
         return `Ошибка веб-поиска: ${e}`;
       }
