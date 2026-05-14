@@ -365,6 +365,17 @@ NGINXEOF
 
     cat <<NGINXEOF
     location / {
+        if (\$request_method = 'OPTIONS') {
+            add_header 'Access-Control-Allow-Origin' '*';
+            add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, PATCH, DELETE, OPTIONS';
+            add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization';
+            return 204;
+        }
+
+        add_header 'Access-Control-Allow-Origin' '*' always;
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, PATCH, DELETE, OPTIONS' always;
+        add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
+
         proxy_pass http://host.docker.internal:${BACKEND_PORT}/;
         proxy_set_header Host              \$host;
         proxy_set_header X-Real-IP         \$remote_addr;
