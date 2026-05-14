@@ -271,7 +271,7 @@ export async function generateChatTitle(userMessage: string): Promise<string> {
     apiKey,
     baseURL: process.env.GLM_BASE_URL ?? "https://api.z.ai/api/coding/paas/v4",
   });
-  const model = process.env.GLM_TITLE_MODEL ?? process.env.GLM_MODEL ?? "glm-z1-flash";
+  const model = process.env.GLM_TITLE_MODEL ?? process.env.GLM_MODEL ?? "GLM-5-Turbo";
 
   try {
     const res = await client.chat.completions.create({
@@ -307,7 +307,7 @@ export async function* clawzettelChat(messages: Message[]): AsyncGenerator<ChatC
     baseURL: process.env.GLM_BASE_URL ?? "https://api.z.ai/api/coding/paas/v4",
   });
 
-  const model = process.env.GLM_MODEL ?? "glm-z1-flash";
+  const model = process.env.GLM_MODEL ?? "GLM-5-Turbo";
 
   let glmMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: buildSystemPrompt() },
