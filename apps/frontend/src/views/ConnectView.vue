@@ -15,7 +15,7 @@
             <input
               v-model="url"
               type="text"
-              placeholder="https://your-vps:3001"
+              placeholder="https://your-domain.com"
               class="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
               required
               autocomplete="url"

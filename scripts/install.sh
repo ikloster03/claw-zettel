@@ -1,14 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ─────────────────────────────────────────────
+#  Flags
+# ─────────────────────────────────────────────
+FORCE=false
+for arg in "$@"; do
+  [[ "$arg" == "--force" ]] && FORCE=true
+done
+
 REPO="https://github.com/ikloster03/claw-zettel"
 BACKEND_DIR="/opt/claw-zettel-backend"
+NGINX_DIR="$BACKEND_DIR/nginx"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 info()    { echo -e "${GREEN}[claw-zettel]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[claw-zettel]${NC} $*"; }
 error()   { echo -e "${RED}[claw-zettel]${NC} $*" >&2; exit 1; }
 step()    { echo ""; echo "  $*"; echo ""; }
+
+_backend_running() {
+  [[ -f "$BACKEND_DIR/apps/backend/docker-compose.yml" ]] || return 1
+  docker compose -f "$BACKEND_DIR/apps/backend/docker-compose.yml" \
+    ps -q --status running 2>/dev/null | grep -q .
+}
+
+_nginx_running() {
+  [[ -f "$NGINX_DIR/docker-compose.yml" ]] || return 1
+  docker compose -f "$NGINX_DIR/docker-compose.yml" \
+    ps -q --status running 2>/dev/null | grep -q .
+}
 
 # All reads use /dev/tty so the script works when piped: curl ... | bash
 ask() {
@@ -67,6 +88,7 @@ echo "  ┌───────────────────────
 echo "  │     claw-zettel  backend installer    │"
 echo "  └──────────────────────────────────────┘"
 echo ""
+[[ "$FORCE" == "true" ]] && warn "Running in --force mode: existing installation will be removed."
 
 # ─────────────────────────────────────────────
 #  Step 1: Notes repository
@@ -140,7 +162,6 @@ else
   SSL_TYPE="letsencrypt"
   ask LE_EMAIL "Email for Let's Encrypt expiry notices"
   [[ -z "$LE_EMAIL" ]] && error "Email is required for Let's Encrypt."
-  info "Certbot will temporarily bind to port 80 — make sure nothing else uses it."
 fi
 
 # ─────────────────────────────────────────────
@@ -165,10 +186,30 @@ fi
 # ─────────────────────────────────────────────
 #  Derived values
 # ─────────────────────────────────────────────
-JWT_SECRET="$(gen_secret)"
-SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || hostname)"
+# Preserve JWT_SECRET on re-runs so existing sessions stay valid
+if [[ "$FORCE" == "false" ]] && [[ -f "$BACKEND_DIR/apps/backend/.env" ]]; then
+  _existing_jwt="$(grep '^JWT_SECRET=' "$BACKEND_DIR/apps/backend/.env" 2>/dev/null | cut -d= -f2 || true)"
+  JWT_SECRET="${_existing_jwt:-$(gen_secret)}"
+else
+  JWT_SECRET="$(gen_secret)"
+fi
 
 BACKEND_PUBLIC_URL="https://${DOMAIN}"
+
+# ─────────────────────────────────────────────
+#  --force: tear down existing installation
+# ─────────────────────────────────────────────
+if [[ "$FORCE" == "true" ]]; then
+  warn "Tearing down existing installation…"
+  if [[ -f "$NGINX_DIR/docker-compose.yml" ]]; then
+    docker compose -f "$NGINX_DIR/docker-compose.yml" down 2>/dev/null && info "nginx removed." || true
+  fi
+  if [[ -f "$BACKEND_DIR/apps/backend/docker-compose.yml" ]]; then
+    docker compose -f "$BACKEND_DIR/apps/backend/docker-compose.yml" down 2>/dev/null && info "backend stopped." || true
+  fi
+  rm -rf "$NGINX_DIR"
+  info "Cleanup done. Reinstalling from scratch…"
+fi
 
 # ─────────────────────────────────────────────
 #  Set up notes repo
@@ -236,28 +277,59 @@ ENVEOF
 # ─────────────────────────────────────────────
 #  Start backend
 # ─────────────────────────────────────────────
-info "Starting backend…"
-docker compose -f "$BACKEND_DIR/apps/backend/docker-compose.yml" \
-  --env-file "$BACKEND_DIR/apps/backend/.env" \
-  up -d --build
+if _backend_running && [[ "$FORCE" == "false" ]]; then
+  info "Backend already running — skipping rebuild."
+else
+  info "Starting backend…"
+  docker compose -f "$BACKEND_DIR/apps/backend/docker-compose.yml" \
+    --env-file "$BACKEND_DIR/apps/backend/.env" \
+    up -d --build
+fi
 
 # ─────────────────────────────────────────────
 #  SSL + nginx reverse proxy
 # ─────────────────────────────────────────────
 if [[ "$USE_SSL" == "true" ]]; then
-  NGINX_DIR="$BACKEND_DIR/nginx"
   mkdir -p "$NGINX_DIR/certs"
 
   # ── Obtain / copy certificate ──────────────
   if [[ "$SSL_TYPE" == "letsencrypt" ]]; then
-    info "Obtaining Let's Encrypt certificate for $DOMAIN…"
-    docker run --rm \
-      -p 80:80 \
-      -v "$NGINX_DIR/certs:/etc/letsencrypt" \
-      certbot/certbot certonly \
-        --standalone --non-interactive --agree-tos \
-        --email "$LE_EMAIL" -d "$DOMAIN" \
-      || error "Let's Encrypt failed. Check that $DOMAIN resolves here and port 80 is open."
+    CERT_LIVE="$NGINX_DIR/certs/live/${DOMAIN}/fullchain.pem"
+    NEED_CERT=true
+
+    if [[ "$FORCE" == "false" ]] && [[ -f "$CERT_LIVE" ]]; then
+      if openssl x509 -checkend 86400 -noout -in "$CERT_LIVE" 2>/dev/null; then
+        info "Certificate for $DOMAIN is valid — skipping certbot."
+        NEED_CERT=false
+      else
+        warn "Certificate exists but expires within 24 h — renewing."
+      fi
+    fi
+
+    if [[ "$NEED_CERT" == "true" ]]; then
+      # Stop nginx if it's holding port 80
+      NGINX_WAS_RUNNING=false
+      if _nginx_running; then
+        NGINX_WAS_RUNNING=true
+        info "Stopping nginx to free port 80 for certbot…"
+        docker compose -f "$NGINX_DIR/docker-compose.yml" stop
+      fi
+
+      info "Obtaining Let's Encrypt certificate for $DOMAIN…"
+      if ! docker run --rm \
+        -p 80:80 \
+        -v "$NGINX_DIR/certs:/etc/letsencrypt" \
+        certbot/certbot certonly \
+          --standalone --non-interactive --agree-tos \
+          --email "$LE_EMAIL" -d "$DOMAIN"; then
+        [[ "$NGINX_WAS_RUNNING" == "true" ]] && \
+          docker compose -f "$NGINX_DIR/docker-compose.yml" start || true
+        error "Let's Encrypt failed. Check that $DOMAIN resolves here and port 80 is open."
+      fi
+
+      [[ "$NGINX_WAS_RUNNING" == "true" ]] && \
+        docker compose -f "$NGINX_DIR/docker-compose.yml" start || true
+    fi
 
     NGINX_CERT="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
     NGINX_KEY="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
@@ -320,8 +392,24 @@ services:
     restart: unless-stopped
 DCEOF
 
-  info "Starting nginx reverse proxy…"
-  docker compose -f "$NGINX_DIR/docker-compose.yml" up -d
+  # ── Start or reload nginx ──────────────────
+  if _nginx_running && [[ "$FORCE" == "false" ]]; then
+    info "nginx already running — reloading config…"
+    docker compose -f "$NGINX_DIR/docker-compose.yml" exec -T nginx nginx -s reload 2>/dev/null || \
+      docker compose -f "$NGINX_DIR/docker-compose.yml" restart nginx
+  else
+    info "Starting nginx reverse proxy…"
+    docker compose -f "$NGINX_DIR/docker-compose.yml" up -d
+  fi
+
+  # ── Verify nginx is up ─────────────────────
+  sleep 2
+  if ! _nginx_running; then
+    warn "nginx failed to start. Container logs:"
+    docker compose -f "$NGINX_DIR/docker-compose.yml" logs --tail=30 >&2
+    error "nginx is not running. Fix the errors above and re-run."
+  fi
+  info "nginx is up."
 
   # ── Auto-renewal (Let's Encrypt only) ────────
   if [[ "$SSL_TYPE" == "letsencrypt" ]]; then
