@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { join, resolve } from "path";
-import { readdir, readFile, writeFile, unlink, mkdir } from "fs/promises";
+import { readdir, readFile, writeFile, unlink, mkdir, stat } from "fs/promises";
 import { existsSync } from "fs";
 import { authMiddleware } from "../middleware/auth";
 import { gitCommitAndPush } from "../services/git";
@@ -18,16 +18,18 @@ function safeFullPath(root: string, userPath: string): string | null {
   return full;
 }
 
-async function listMdFiles(dir: string, base = ""): Promise<string[]> {
+async function listMdFiles(dir: string, base = ""): Promise<{ path: string; mtime: number }[]> {
   const entries = await readdir(dir, { withFileTypes: true });
-  const results: string[] = [];
+  const results: { path: string; mtime: number }[] = [];
   for (const entry of entries) {
     if (entry.name.startsWith(".")) continue;
     const rel = base ? `${base}/${entry.name}` : entry.name;
+    const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
-      results.push(...(await listMdFiles(join(dir, entry.name), rel)));
+      results.push(...(await listMdFiles(fullPath, rel)));
     } else if (entry.name.endsWith(".md")) {
-      results.push(rel);
+      const { mtimeMs } = await stat(fullPath);
+      results.push({ path: rel, mtime: Math.floor(mtimeMs) });
     }
   }
   return results;
@@ -45,9 +47,9 @@ notesRouter.get("/search", async (c) => {
   if (!q) return c.json([]);
   const root = notesRoot();
   if (!existsSync(root)) return c.json([]);
-  const files = await listMdFiles(root);
+  const entries = await listMdFiles(root);
   const results: { path: string; excerpt: string }[] = [];
-  for (const file of files) {
+  for (const { path: file } of entries) {
     const text = await readFile(join(root, file), "utf-8");
     if (text.toLowerCase().includes(q)) {
       const idx = text.toLowerCase().indexOf(q);

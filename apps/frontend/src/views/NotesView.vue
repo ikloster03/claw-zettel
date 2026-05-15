@@ -8,13 +8,24 @@
       <div class="px-4 py-3 border-b border-[var(--color-border)] space-y-2">
         <div class="flex items-center justify-between">
           <h2 class="font-semibold text-sm">Notes</h2>
-          <button
-            @click="newNote"
-            class="rounded-lg p-1.5 hover:bg-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
-            title="New note"
-          >
-            <Plus class="size-4" />
-          </button>
+          <div class="flex items-center gap-0.5">
+            <button
+              v-if="allFolderPaths.length"
+              @click="toggleAllFolders"
+              class="rounded-lg p-1.5 hover:bg-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
+              :title="allExpanded ? 'Collapse all' : 'Expand all'"
+            >
+              <ChevronsDownUp v-if="allExpanded" class="size-4" />
+              <ChevronsUpDown v-else class="size-4" />
+            </button>
+            <button
+              @click="newNote"
+              class="rounded-lg p-1.5 hover:bg-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
+              title="New note"
+            >
+              <Plus class="size-4" />
+            </button>
+          </div>
         </div>
         <div class="relative">
           <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-[var(--color-muted)]" />
@@ -49,20 +60,20 @@
           No results
         </div>
 
-        <!-- File list -->
+        <!-- File tree -->
         <template v-else>
           <div v-if="!store.files.length" class="px-4 py-8 text-center text-sm text-[var(--color-muted)]">
             No notes found
           </div>
-          <button
-            v-for="file in store.files"
-            :key="file"
-            @click="openNote(file)"
-            class="w-full text-left px-4 py-3 text-sm hover:bg-[var(--color-border)] transition-colors border-b border-[var(--color-border)] last:border-0 truncate"
-            :class="file === store.currentPath ? 'bg-[var(--color-border)] font-medium text-[var(--color-text)]' : 'text-[var(--color-muted)]'"
-          >
-            {{ file }}
-          </button>
+          <NoteTree
+            v-else
+            :nodes="fileTree"
+            :depth="0"
+            :expanded-folders="expandedFolders"
+            :current-path="store.currentPath"
+            @open-note="openNote"
+            @toggle-folder="toggleFolder"
+          />
         </template>
       </div>
     </div>
@@ -164,9 +175,10 @@
 <script setup lang="ts">
 import { ref, watch, computed, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Plus, Search, Pencil, Trash2, ChevronLeft, FileText } from "lucide-vue-next";
+import { Plus, Search, Pencil, Trash2, ChevronLeft, FileText, ChevronsUpDown, ChevronsDownUp } from "lucide-vue-next";
 import { marked, type Tokens } from "marked";
 import { useNotesStore } from "@/stores/notes";
+import NoteTree from "@/components/notes/NoteTree.vue";
 
 marked.use({
   extensions: [
@@ -199,6 +211,44 @@ marked.use({
   },
 });
 
+export interface TreeNode {
+  type: "folder" | "file";
+  name: string;
+  path: string;
+  children: TreeNode[];
+}
+
+function buildTree(files: string[], fileMtimes: Record<string, number>): TreeNode[] {
+  const root: TreeNode[] = [];
+  for (const filePath of files) {
+    const segments = filePath.split("/");
+    let currentLevel = root;
+    for (let i = 0; i < segments.length - 1; i++) {
+      const folderPath = segments.slice(0, i + 1).join("/");
+      let folder = currentLevel.find(n => n.type === "folder" && n.path === folderPath);
+      if (!folder) {
+        folder = { type: "folder", name: segments[i], path: folderPath, children: [] };
+        currentLevel.push(folder);
+      }
+      currentLevel = folder.children;
+    }
+    const fileName = segments[segments.length - 1];
+    currentLevel.push({ type: "file", name: fileName, path: filePath, children: [] });
+  }
+  function sortLevel(nodes: TreeNode[]): void {
+    nodes.sort((a, b) => {
+      if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+      if (a.type === "file") return (fileMtimes[b.path] ?? 0) - (fileMtimes[a.path] ?? 0);
+      return a.name.localeCompare(b.name);
+    });
+    for (const node of nodes) {
+      if (node.type === "folder") sortLevel(node.children);
+    }
+  }
+  sortLevel(root);
+  return root;
+}
+
 const store = useNotesStore();
 const route = useRoute();
 const router = useRouter();
@@ -211,6 +261,50 @@ const newNotePath = ref("");
 const newNoteContent = ref("");
 const newNoteInput = ref<HTMLInputElement | null>(null);
 let searchTimer: ReturnType<typeof setTimeout>;
+
+const LS_EXPANDED_KEY = "cz_notes_expanded_folders";
+
+function loadExpandedFromStorage(): Set<string> {
+  try {
+    const stored = localStorage.getItem(LS_EXPANDED_KEY);
+    if (stored) return new Set(JSON.parse(stored) as string[]);
+  } catch {}
+  return new Set();
+}
+
+const expandedFolders = ref<Set<string>>(loadExpandedFromStorage());
+const fileTree = computed<TreeNode[]>(() => buildTree(store.files, store.fileMtimes));
+
+watch(expandedFolders, (set) => {
+  localStorage.setItem(LS_EXPANDED_KEY, JSON.stringify([...set]));
+});
+
+function toggleFolder(path: string) {
+  const next = new Set(expandedFolders.value);
+  if (next.has(path)) next.delete(path); else next.add(path);
+  expandedFolders.value = next;
+}
+
+function collectFolderPaths(nodes: TreeNode[]): string[] {
+  const paths: string[] = [];
+  for (const node of nodes) {
+    if (node.type === "folder") {
+      paths.push(node.path);
+      paths.push(...collectFolderPaths(node.children));
+    }
+  }
+  return paths;
+}
+
+const allFolderPaths = computed(() => collectFolderPaths(fileTree.value));
+const allExpanded = computed(() =>
+  allFolderPaths.value.length > 0 &&
+  allFolderPaths.value.every(p => expandedFolders.value.has(p))
+);
+
+function toggleAllFolders() {
+  expandedFolders.value = allExpanded.value ? new Set() : new Set(allFolderPaths.value);
+}
 
 onMounted(async () => {
   await store.fetchFiles();

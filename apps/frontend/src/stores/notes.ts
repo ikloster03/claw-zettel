@@ -10,13 +10,16 @@ export interface SearchResult {
 export const useNotesStore = defineStore("notes", () => {
   const conn = useConnectionStore();
   const files = ref<string[]>([]);
+  const fileMtimes = ref<Record<string, number>>({});
   const searchResults = ref<SearchResult[]>([]);
   const currentPath = ref<string | null>(null);
   const currentContent = ref<string>("");
   const loading = ref(false);
 
   async function fetchFiles() {
-    files.value = await conn.api<string[]>("/notes");
+    const data = await conn.api<{ path: string; mtime: number }[]>("/notes");
+    files.value = data.map(f => f.path);
+    fileMtimes.value = Object.fromEntries(data.map(f => [f.path, f.mtime]));
   }
 
   async function search(q: string) {
@@ -39,6 +42,7 @@ export const useNotesStore = defineStore("notes", () => {
         files.value.push(path);
         files.value.sort();
       }
+      fileMtimes.value = { ...fileMtimes.value, [path]: Date.now() };
       if (currentPath.value === path) currentContent.value = content;
     } finally {
       loading.value = false;
@@ -48,11 +52,13 @@ export const useNotesStore = defineStore("notes", () => {
   async function deleteNote(path: string) {
     await conn.api(`/notes/${path}`, { method: "DELETE" });
     files.value = files.value.filter((f) => f !== path);
+    const { [path]: _, ...rest } = fileMtimes.value;
+    fileMtimes.value = rest;
     if (currentPath.value === path) {
       currentPath.value = null;
       currentContent.value = "";
     }
   }
 
-  return { files, searchResults, currentPath, currentContent, loading, fetchFiles, search, openNote, saveNote, deleteNote };
+  return { files, fileMtimes, searchResults, currentPath, currentContent, loading, fetchFiles, search, openNote, saveNote, deleteNote };
 });
