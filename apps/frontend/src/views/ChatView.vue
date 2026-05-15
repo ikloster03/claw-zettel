@@ -108,7 +108,7 @@
         </div>
 
         <!-- Messages -->
-        <div ref="messagesEl" class="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div ref="messagesEl" class="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
           <div v-if="!messages.length" class="text-center text-sm text-[var(--color-muted)] mt-12">
             Send a message to start the conversation
           </div>
@@ -156,7 +156,8 @@
             <!-- Message bubble -->
             <div
               v-if="msg.content || msg.role === 'user'"
-              class="group flex items-center gap-1.5"
+              class="group flex items-center gap-1.5 w-full"
+              :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
             >
               <!-- Rollback button (left of bubble, user only) -->
               <button
@@ -168,7 +169,7 @@
                 <RotateCcw class="size-3.5" />
               </button>
               <div
-                class="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm"
+                class="min-w-0 max-w-[80%] rounded-2xl px-4 py-2.5 text-sm"
                 :class="msg.role === 'user'
                   ? 'bg-[var(--color-accent)] text-white rounded-br-sm'
                   : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] rounded-bl-sm'"
