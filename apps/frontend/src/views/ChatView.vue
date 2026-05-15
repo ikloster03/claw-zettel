@@ -264,7 +264,7 @@
               v-model="input"
               @keydown="handleKeydown"
               rows="1"
-              placeholder="Сообщение… или /new /find /upd /del /web"
+              :placeholder="isMobile ? 'Сообщение… или /new /find /upd /del /web' : 'Сообщение… или /new /find /upd /del /web  (⌘/Ctrl+Enter — отправить)'"
               class="flex-1 resize-none rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] max-h-32 overflow-y-auto"
               :disabled="streaming"
             />
@@ -355,6 +355,15 @@ const COMMANDS = [
 ] as const;
 
 const isMobile = computed(() => window.innerWidth < 768);
+
+function resizeTextarea() {
+  const el = textareaEl.value;
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 128) + "px";
+}
+
+watch(input, () => nextTick(resizeTextarea));
 const activeChat = computed(() => store.chats.find((c) => c.id === activeChatId.value));
 const messages = computed(() => (activeChatId.value ? store.messages[activeChatId.value] ?? [] : []));
 const lastUserMsgIdx = computed(() => {
@@ -451,7 +460,7 @@ function handleKeydown(e: KeyboardEvent) {
     return;
   }
 
-  if (e.key === "Enter" && !e.shiftKey) {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !isMobile.value) {
     e.preventDefault();
     sendMessage();
   }
@@ -585,6 +594,8 @@ async function sendMessage() {
 
   lastSentText.value = text;
   input.value = "";
+  await nextTick();
+  resizeTextarea();
   streaming.value = true;
   try {
     for await (const _ of store.sendMessage(activeChatId.value, text)) {
